@@ -1,0 +1,57 @@
+statements      : (NEWLINE|SEMILOCON)* (statement (NEWLINE|SEMILOCON)+)* (NEWLINE|SEMILOCON)*
+                : EOF
+
+statementIf     : KEYWORD:if(expr) { statements }
+                : KEYWORD:if(expr) { statements } KEYWORD:else statement
+                : KEYWORD:if(expr) { statements } KEYWORD:else { statements }
+                : KEYWORD:if(expr) expr 
+
+statementWhile  : KEYWORD:while(expr) { statements }
+                : KEYWORD:while(expr) expr 
+
+statementFor    : KEYWORD:for(expr?; expr?; expr?) { statements }
+                : KEYWORD:for(expr?; expr?; expr?) expr 
+
+statement       : statementIf
+                : statementFor
+                : statementWhile
+                : expr
+
+expr            : KEYWORD:let IDENTIFIER EQ expr
+                : KEYWORD:let IDENTIFIER [expr]
+                : IDENTIFIER EQ expr
+                : andLogExpr (D_OR andLogExpr)*
+
+andLogExpr      : compExpr (D_AND compExpr)*     
+
+compExpr        : noExpr ((EE|NE|LT|GT|LTE|GTE) noExpr)*
+
+noExpr          : NOT noExpr
+                : arithmExpr
+
+arithmExpr      : term ((PLUS|MINUS) term)*
+
+term            : factor ((MUL|DIV) factor)*
+
+factor          : (PLUS|MINUS) factor
+                : power
+        
+power           : atomManip (POW factor)*
+
+atomManip       : listManip
+                : funCall
+
+listManip       : atom [expr]
+                : atom [expr] EQ expr
+                : atom
+
+funCall         : atom L_PAREN expr? (COMMA expr)* R_PAREN
+
+atom            : INT|FLOAT|IDENTIFIER|STRING_L
+                : L_PAREN expr R_PAREN
+                : funcDef
+
+list            : [expr? (COMMA expr)*]
+
+funDef          : KEYWORD:function IDENTIFIER? L_PAREN IDENTIFIER? (COMMA IDENTIFIER)* R_PAREN expr
+                : KEYWORD:function IDENTIFIER? L_PAREN IDENTIFIER? (COMMA IDENTIFIER)* R_PAREN { statements }
