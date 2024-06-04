@@ -39,8 +39,10 @@ var SeclangError = /** @class */ (function () {
     };
     SeclangError.prototype.toString = function () {
         var str = "".concat(this.errorName, ": ").concat(this.details, "\n");
-        str += "File ".concat(this.posStart.filename, ", line ").concat(this.posEnd.line + 1, "\n");
-        str += this.genArrowsLine();
+        if (this.posStart !== null && this.posEnd !== null) {
+            str += "File ".concat(this.posStart.filename, ", line ").concat(this.posEnd.line + 1, "\n");
+            str += this.genArrowsLine();
+        }
         return str;
     };
     return SeclangError;
@@ -99,9 +101,14 @@ var RuntimeSeclangError = /** @class */ (function (_super) {
         return "Traceback (most recent call last):\n" + result;
     };
     RuntimeSeclangError.prototype.toString = function () {
-        var str = this.generateTraceback();
+        var str = "";
+        if (this.posStart !== null && this.posEnd !== null) {
+            str += this.generateTraceback();
+        }
         str += "".concat(this.errorName, ": ").concat(this.details, "\n");
-        str += this.genArrowsLine();
+        if (this.posStart !== null && this.posEnd !== null) {
+            str += this.genArrowsLine();
+        }
         return str;
     };
     return RuntimeSeclangError;
@@ -173,7 +180,7 @@ var TokType;
     TokType["NEWLINE"] = "NEWLINE";
     TokType["EOF"] = "EOF";
 })(TokType || (TokType = {}));
-var KEYWORDS = ["let", "if", "else", "while", "for", "function"];
+var KEYWORDS = ["let", "if", "else", "while", "for", "function", "continue", "break", "return"];
 var KEYWORDS_SET = new Set(KEYWORDS);
 var Token = /** @class */ (function () {
     function Token(type, value, posStart, posEnd) {
@@ -1054,6 +1061,48 @@ var StatementsNode = /** @class */ (function (_super) {
     };
     return StatementsNode;
 }(Node));
+var ReturnNode = /** @class */ (function (_super) {
+    __extends(ReturnNode, _super);
+    function ReturnNode(returnValue, posStart, posEnd) {
+        var _this = _super.call(this) || this;
+        _this.posStart = posStart;
+        _this.posEnd = posEnd;
+        _this.returnValue = returnValue;
+        return _this;
+    }
+    ReturnNode.prototype.toString = function () {
+        if (this.returnValue !== null)
+            return "return ".concat(this.returnValue);
+        return "return";
+    };
+    return ReturnNode;
+}(Node));
+var BreakNode = /** @class */ (function (_super) {
+    __extends(BreakNode, _super);
+    function BreakNode(posStart, posEnd) {
+        var _this = _super.call(this) || this;
+        _this.posStart = posStart;
+        _this.posEnd = posEnd;
+        return _this;
+    }
+    BreakNode.prototype.toString = function () {
+        return "break";
+    };
+    return BreakNode;
+}(Node));
+var ContinueNode = /** @class */ (function (_super) {
+    __extends(ContinueNode, _super);
+    function ContinueNode(posStart, posEnd) {
+        var _this = _super.call(this) || this;
+        _this.posStart = posStart;
+        _this.posEnd = posEnd;
+        return _this;
+    }
+    ContinueNode.prototype.toString = function () {
+        return "continue";
+    };
+    return ContinueNode;
+}(Node));
 /* =================== */
 // PARSER
 /* =================== */
@@ -1195,7 +1244,7 @@ var Parser = /** @class */ (function () {
             this.advance();
             return res.success(new FunDefNode(funName, argNames, funBody_1));
         }
-        var funBody = res.registerChild(this.makeExpr());
+        var funBody = res.registerChild(this.makeInlineStatement());
         if (res.error)
             return res;
         return res.success(new FunDefNode(funName, argNames, funBody));
@@ -1505,6 +1554,33 @@ var Parser = /** @class */ (function () {
         }
         return res.success(left);
     };
+    Parser.prototype.makeInlineStatement = function () {
+        var res = new ParseNodeResult();
+        var firstPos = this.curToken.posStart.copy();
+        if (this.curToken instanceof KeywordToken && this.curToken.value === "break") {
+            res.registerAdvancement();
+            this.advance();
+            return res.success(new BreakNode(firstPos, this.curToken.posStart));
+        }
+        if (this.curToken instanceof KeywordToken && this.curToken.value === "continue") {
+            res.registerAdvancement();
+            this.advance();
+            return res.success(new ContinueNode(firstPos, this.curToken.posStart));
+        }
+        if (this.curToken instanceof KeywordToken && this.curToken.value === "return") {
+            res.registerAdvancement();
+            this.advance();
+            var returnVal = null;
+            returnVal = res.registerTry(this.makeExpr());
+            // backtrack if there were no expr to return
+            if (returnVal === null) {
+                res.unregisterAdvancement(res.backtrackCount);
+                this.unadvance(res.backtrackCount);
+            }
+            return res.success(new ReturnNode(returnVal, firstPos, this.curToken.posStart));
+        }
+        return this.makeExpr();
+    };
     Parser.prototype.makeStatementIf = function () {
         var res = new ParseNodeResult();
         if (!(this.curToken instanceof LParenToken)) {
@@ -1522,7 +1598,7 @@ var Parser = /** @class */ (function () {
         this.advance();
         res.resetAdvancementCount();
         if (!(this.curToken instanceof LCurlyToken)) {
-            var onTrueStatement_1 = res.registerChild(this.makeExpr());
+            var onTrueStatement_1 = res.registerChild(this.makeInlineStatement());
             if (res.error) {
                 return res.failure(new InvalidSyntaxSeclangError(this.curToken.posStart, this.curToken.posEnd, "Expected '{', '!', 'let', int or float"));
             }
@@ -1580,7 +1656,7 @@ var Parser = /** @class */ (function () {
         this.advance();
         res.resetAdvancementCount();
         if (!(this.curToken instanceof LCurlyToken)) {
-            var whileBody_1 = res.registerChild(this.makeExpr());
+            var whileBody_1 = res.registerChild(this.makeInlineStatement());
             if (res.error) {
                 return res.failure(new InvalidSyntaxSeclangError(this.curToken.posStart, this.curToken.posEnd, "Expected '{', '!', 'let', int or float"));
             }
@@ -1650,7 +1726,7 @@ var Parser = /** @class */ (function () {
         this.advance();
         res.resetAdvancementCount();
         if (!(this.curToken instanceof LCurlyToken)) {
-            var forBody_1 = res.registerChild(this.makeExpr());
+            var forBody_1 = res.registerChild(this.makeInlineStatement());
             if (res.error) {
                 return res.failure(new InvalidSyntaxSeclangError(this.curToken.posStart, this.curToken.posEnd, "Expected '{', '!', 'let', int or float"));
             }
@@ -1689,11 +1765,11 @@ var Parser = /** @class */ (function () {
             this.advance();
             return this.makeStatementFor();
         }
-        var expr = res.registerChild(this.makeExpr());
+        var statement = res.registerChild(this.makeInlineStatement());
         if (res.error) {
             return res.failure(new InvalidSyntaxSeclangError(this.curToken.posStart, this.curToken.posEnd, "Expected 'for', 'while', 'if', '!', 'let', int or float"));
         }
-        return res.success(expr);
+        return res.success(statement);
     };
     // read any number of newlines/semicolons
     Parser.prototype.readAllNewlines = function () {
@@ -2084,11 +2160,11 @@ var SeclangFunction = /** @class */ (function (_super) {
         var interpreter = new Interpreter();
         var newContext = this.generateNewContext();
         res.registerChild(this.checkArgs(this.argNames, args));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         this.populateArgs(this.argNames, args, newContext);
         var value = res.registerChild(interpreter.visit(this.bodyNode, newContext));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         return res.success(value);
     };
@@ -2112,7 +2188,7 @@ var SeclangPrintFunction = /** @class */ (function (_super) {
         var res = new RuntimeResult();
         var newContext = this.generateNewContext();
         res.registerChild(this.checkArgs(this.argNames, args));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         this.populateArgs(this.argNames, args, newContext);
         console.log(newContext.symbolTable.get("value").asString());
@@ -2138,7 +2214,7 @@ var SeclangSqrtFunction = /** @class */ (function (_super) {
         var res = new RuntimeResult();
         var newContext = this.generateNewContext();
         res.registerChild(this.checkArgs(this.argNames, args));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         this.populateArgs(this.argNames, args, newContext);
         var val = newContext.symbolTable.get("value");
@@ -2232,25 +2308,49 @@ var SeclangList = /** @class */ (function (_super) {
 }(SeclangValue));
 var RuntimeResult = /** @class */ (function () {
     function RuntimeResult() {
+        this.reset();
+    }
+    RuntimeResult.prototype.reset = function () {
         this.value = null;
         this.error = null;
-    }
+        this.returningVal = null;
+        this.breaking = false;
+        this.continuing = false;
+    };
     RuntimeResult.prototype.registerChild = function (res) {
-        if (res instanceof RuntimeResult) {
-            if (res.error) {
-                this.error = res.error;
-            }
-            return res.value;
-        }
-        return res;
+        this.error = res.error;
+        this.returningVal = res.returningVal;
+        this.breaking = res.breaking;
+        this.continuing = res.continuing;
+        return res.value;
     };
     RuntimeResult.prototype.success = function (value) {
+        this.reset();
         this.value = value;
         return this;
     };
+    RuntimeResult.prototype.successReturn = function (value) {
+        this.reset();
+        this.returningVal = value;
+        return this;
+    };
+    RuntimeResult.prototype.successBreak = function () {
+        this.reset();
+        this.breaking = true;
+        return this;
+    };
+    RuntimeResult.prototype.successContinue = function () {
+        this.reset();
+        this.continuing = true;
+        return this;
+    };
     RuntimeResult.prototype.failure = function (error) {
+        this.reset();
         this.error = error;
         return this;
+    };
+    RuntimeResult.prototype.shouldReturnUp = function () {
+        return this.error || this.returningVal !== null || this.breaking || this.continuing;
     };
     return RuntimeResult;
 }());
@@ -2259,6 +2359,15 @@ var Interpreter = /** @class */ (function () {
     }
     Interpreter.prototype.interpret = function (astRoot, context) {
         var result = this.visit(astRoot, context);
+        if (result.returningVal !== null) {
+            result.failure(new RuntimeSeclangError(null, null, "'return' not inside a function", context));
+        }
+        if (result.breaking !== false) {
+            result.failure(new RuntimeSeclangError(null, null, "'break' not inside a loop", context));
+        }
+        if (result.continuing !== false) {
+            result.failure(new RuntimeSeclangError(null, null, "'continue' not inside a loop", context));
+        }
         return new InterpreterResult(result.value, result.error);
     };
     Interpreter.prototype.visit = function (node, context) {
@@ -2298,6 +2407,12 @@ var Interpreter = /** @class */ (function () {
             return this.visitListSetNode(node, context);
         if (node instanceof StatementsNode)
             return this.visitStatementsNode(node, context);
+        if (node instanceof ReturnNode)
+            return this.visitReturnNode(node, context);
+        if (node instanceof BreakNode)
+            return this.visitBreakNode(node, context);
+        if (node instanceof ContinueNode)
+            return this.visitContinueNode(node, context);
         return this.noVisitMethod(node, context);
     };
     Interpreter.prototype.visitNumberNode = function (node, context) {
@@ -2316,10 +2431,10 @@ var Interpreter = /** @class */ (function () {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
         var res = new RuntimeResult();
         var leftVal = res.registerChild(this.visit(node.leftNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         var rightVal = res.registerChild(this.visit(node.rightNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         var result = null;
         var error = null;
@@ -2362,7 +2477,7 @@ var Interpreter = /** @class */ (function () {
         var _a, _b;
         var res = new RuntimeResult();
         var num = res.registerChild(this.visit(node.node, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         var result = null;
         var error = null;
@@ -2391,7 +2506,7 @@ var Interpreter = /** @class */ (function () {
         var res = new RuntimeResult();
         var varName = node.varNameToken.value;
         var assignValue = res.registerChild(this.visit(node.valueNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         if (context.symbolTable.get(varName) === null) {
             return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "".concat(varName, " is not defined"), context));
@@ -2405,7 +2520,7 @@ var Interpreter = /** @class */ (function () {
         var assignValue = new SeclangNumber(null);
         if (node.initValNode !== null) {
             assignValue = res.registerChild(this.visit(node.initValNode, context));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
         }
         if (context.symbolTable.isDefined(varName)) {
@@ -2421,7 +2536,7 @@ var Interpreter = /** @class */ (function () {
             return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "".concat(listName, " is already defined"), context));
         }
         var listLen = res.registerChild(this.visit(node.length, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         if (!(listLen instanceof SeclangNumber)) {
             return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "index should be a number", context));
@@ -2438,7 +2553,7 @@ var Interpreter = /** @class */ (function () {
         var newContext = new Context(null, context, node.posStart);
         newContext.symbolTable = new SymbolTable(context.symbolTable);
         var conditionEval = res.registerChild(this.visit(node.condition, newContext));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         if (conditionEval.toBool()) {
             return this.visit(node.onTrue, newContext);
@@ -2454,13 +2569,16 @@ var Interpreter = /** @class */ (function () {
         newContext.symbolTable = new SymbolTable(context.symbolTable);
         while (true) {
             var conditionEval = res.registerChild(this.visit(node.condition, newContext));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
             if (conditionEval.toBool() === false) {
                 break;
             }
             res.registerChild(this.visit(node.body, newContext));
-            if (res.error)
+            if (res.breaking) {
+                break;
+            }
+            if (res.shouldReturnUp() && !res.continuing)
                 return res;
         }
         return res.success(new SeclangNumber(null));
@@ -2470,20 +2588,23 @@ var Interpreter = /** @class */ (function () {
         var newContext = new Context(null, context, node.posStart);
         newContext.symbolTable = new SymbolTable(context.symbolTable);
         res.registerChild(this.visit(node.initStatement, newContext));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         while (true) {
             var conditionEval = res.registerChild(this.visit(node.condition, newContext));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
             if (conditionEval.toBool() === false) {
                 break;
             }
             res.registerChild(this.visit(node.body, newContext));
-            if (res.error)
+            if (res.breaking) {
+                break;
+            }
+            if (res.shouldReturnUp() && !res.continuing)
                 return res;
             res.registerChild(this.visit(node.iterateStatement, newContext));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
         }
         return res.success(new SeclangNumber(null));
@@ -2510,7 +2631,7 @@ var Interpreter = /** @class */ (function () {
     Interpreter.prototype.visitFunCallNode = function (node, context) {
         var res = new RuntimeResult();
         var funNameToCall = res.registerChild(this.visit(node.funNameToCallNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         funNameToCall = funNameToCall.copy().setPos(node.posStart, node.posEnd);
         if (!(funNameToCall instanceof SeclangBaseFunction)) {
@@ -2520,13 +2641,26 @@ var Interpreter = /** @class */ (function () {
         for (var _i = 0, _a = node.argNodes; _i < _a.length; _i++) {
             var argNode = _a[_i];
             var argVal = res.registerChild(this.visit(argNode, context));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
             args.push(argVal);
         }
-        var returnVal = res.registerChild(funNameToCall.execute(args));
-        if (res.error)
-            return res;
+        var returnVal = new SeclangNumber(null);
+        res.registerChild(funNameToCall.execute(args));
+        if (res.shouldReturnUp()) {
+            if (res.returningVal !== null) {
+                returnVal = res.returningVal;
+            }
+            else {
+                if (res.breaking !== false) {
+                    return res.failure(new RuntimeSeclangError(null, null, "'break' not inside a loop", context));
+                }
+                if (res.continuing !== false) {
+                    return res.failure(new RuntimeSeclangError(null, null, "'continue' not inside a loop", context));
+                }
+                return res;
+            }
+        }
         return res.success(returnVal.copy().setPos(node.posStart, node.posEnd).setContext(context));
     };
     Interpreter.prototype.visitListNode = function (node, context) {
@@ -2535,7 +2669,7 @@ var Interpreter = /** @class */ (function () {
         for (var _i = 0, _a = node.elementNodes; _i < _a.length; _i++) {
             var elementNode = _a[_i];
             var element = res.registerChild(this.visit(elementNode, context));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
             elements.push(element);
         }
@@ -2547,14 +2681,14 @@ var Interpreter = /** @class */ (function () {
     Interpreter.prototype.visitListAccessNode = function (node, context) {
         var res = new RuntimeResult();
         var list = res.registerChild(this.visit(node.listNameNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         list = list.copy().setPos(node.posStart, node.posEnd);
         if (!(list instanceof SeclangList)) {
             return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "".concat(list, " is not a list"), context));
         }
         var index = res.registerChild(this.visit(node.indexNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         var _a = list.accessEl(index), element = _a[0], error = _a[1];
         if (error) {
@@ -2565,17 +2699,17 @@ var Interpreter = /** @class */ (function () {
     Interpreter.prototype.visitListSetNode = function (node, context) {
         var res = new RuntimeResult();
         var list = res.registerChild(this.visit(node.listNameNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         list = list.copy().setPos(node.posStart, node.posEnd);
         if (!(list instanceof SeclangList)) {
             return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "".concat(list, " is not a list"), context));
         }
         var index = res.registerChild(this.visit(node.indexNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         var newVal = res.registerChild(this.visit(node.valNode, context));
-        if (res.error)
+        if (res.shouldReturnUp())
             return res;
         var _a = list.setEl(index, newVal), element = _a[0], error = _a[1];
         if (error) {
@@ -2589,10 +2723,28 @@ var Interpreter = /** @class */ (function () {
         for (var _i = 0, _a = node.statementNodes; _i < _a.length; _i++) {
             var elementNode = _a[_i];
             lastVal = res.registerChild(this.visit(elementNode, context));
-            if (res.error)
+            if (res.shouldReturnUp())
                 return res;
         }
         return res.success(lastVal);
+    };
+    Interpreter.prototype.visitReturnNode = function (node, context) {
+        var res = new RuntimeResult();
+        var returnVal = new SeclangNumber(null);
+        if (node.returnValue !== null) {
+            returnVal = res.registerChild(this.visit(node.returnValue, context));
+            if (res.shouldReturnUp())
+                return res;
+        }
+        return res.successReturn(returnVal);
+    };
+    Interpreter.prototype.visitBreakNode = function (node, context) {
+        var res = new RuntimeResult();
+        return res.successBreak();
+    };
+    Interpreter.prototype.visitContinueNode = function (node, context) {
+        var res = new RuntimeResult();
+        return res.successContinue();
     };
     Interpreter.prototype.noVisitMethod = function (node, context) {
         throw new Error("No visit method defined for node ".concat(node, " of type ").concat(node.constructor.name));

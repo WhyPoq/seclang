@@ -30,8 +30,10 @@ class SeclangError {
 
 	public toString() {
 		let str = `${this.errorName}: ${this.details}\n`;
-		str += `File ${this.posStart.filename}, line ${this.posEnd.line + 1}\n`;
-		str += this.genArrowsLine();
+		if (this.posStart !== null && this.posEnd !== null) {
+			str += `File ${this.posStart.filename}, line ${this.posEnd.line + 1}\n`;
+			str += this.genArrowsLine();
+		}
 		return str;
 	}
 }
@@ -93,9 +95,14 @@ class RuntimeSeclangError extends SeclangError {
 	}
 
 	public toString() {
-		let str = this.generateTraceback();
+		let str = "";
+		if (this.posStart !== null && this.posEnd !== null) {
+			str += this.generateTraceback();
+		}
 		str += `${this.errorName}: ${this.details}\n`;
-		str += this.genArrowsLine();
+		if (this.posStart !== null && this.posEnd !== null) {
+			str += this.genArrowsLine();
+		}
 		return str;
 	}
 }
@@ -193,7 +200,7 @@ enum TokType {
 	EOF = "EOF",
 }
 
-const KEYWORDS = ["let", "if", "else", "while", "for", "function"];
+const KEYWORDS = ["let", "if", "else", "while", "for", "function", "continue", "break", "return"];
 const KEYWORDS_SET = new Set(KEYWORDS);
 
 abstract class Token<T = unknown> {
@@ -1088,6 +1095,47 @@ class StatementsNode extends Node {
 	}
 }
 
+class ReturnNode extends Node {
+	public returnValue: Node;
+
+	public constructor(returnValue: Node, posStart: Position, posEnd: Position) {
+		super();
+		this.posStart = posStart;
+		this.posEnd = posEnd;
+
+		this.returnValue = returnValue;
+	}
+
+	public toString() {
+		if (this.returnValue !== null) return `return ${this.returnValue}`;
+		return `return`;
+	}
+}
+
+class BreakNode extends Node {
+	public constructor(posStart: Position, posEnd: Position) {
+		super();
+		this.posStart = posStart;
+		this.posEnd = posEnd;
+	}
+
+	public toString() {
+		return `break`;
+	}
+}
+
+class ContinueNode extends Node {
+	public constructor(posStart: Position, posEnd: Position) {
+		super();
+		this.posStart = posStart;
+		this.posEnd = posEnd;
+	}
+
+	public toString() {
+		return `continue`;
+	}
+}
+
 /* =================== */
 // PARSER
 /* =================== */
@@ -1282,7 +1330,7 @@ class Parser {
 			return res.success(new FunDefNode(funName, argNames, funBody));
 		}
 
-		const funBody = res.registerChild(this.makeExpr());
+		const funBody = res.registerChild(this.makeInlineStatement());
 		if (res.error) return res;
 		return res.success(new FunDefNode(funName, argNames, funBody));
 	}
@@ -1689,6 +1737,40 @@ class Parser {
 		return res.success(left);
 	}
 
+	private makeInlineStatement() {
+		const res = new ParseNodeResult();
+		const firstPos = this.curToken.posStart.copy();
+
+		if (this.curToken instanceof KeywordToken && this.curToken.value === "break") {
+			res.registerAdvancement();
+			this.advance();
+			return res.success(new BreakNode(firstPos, this.curToken.posStart));
+		}
+
+		if (this.curToken instanceof KeywordToken && this.curToken.value === "continue") {
+			res.registerAdvancement();
+			this.advance();
+			return res.success(new ContinueNode(firstPos, this.curToken.posStart));
+		}
+
+		if (this.curToken instanceof KeywordToken && this.curToken.value === "return") {
+			res.registerAdvancement();
+			this.advance();
+
+			let returnVal = null;
+			returnVal = res.registerTry(this.makeExpr());
+			// backtrack if there were no expr to return
+			if (returnVal === null) {
+				res.unregisterAdvancement(res.backtrackCount);
+				this.unadvance(res.backtrackCount);
+			}
+
+			return res.success(new ReturnNode(returnVal, firstPos, this.curToken.posStart));
+		}
+
+		return this.makeExpr();
+	}
+
 	private makeStatementIf() {
 		const res = new ParseNodeResult();
 
@@ -1721,7 +1803,7 @@ class Parser {
 
 		res.resetAdvancementCount();
 		if (!(this.curToken instanceof LCurlyToken)) {
-			const onTrueStatement = res.registerChild(this.makeExpr());
+			const onTrueStatement = res.registerChild(this.makeInlineStatement());
 			if (res.error) {
 				return res.failure(
 					new InvalidSyntaxSeclangError(
@@ -1835,7 +1917,7 @@ class Parser {
 
 		res.resetAdvancementCount();
 		if (!(this.curToken instanceof LCurlyToken)) {
-			const whileBody = res.registerChild(this.makeExpr());
+			const whileBody = res.registerChild(this.makeInlineStatement());
 			if (res.error) {
 				return res.failure(
 					new InvalidSyntaxSeclangError(
@@ -1961,7 +2043,7 @@ class Parser {
 
 		res.resetAdvancementCount();
 		if (!(this.curToken instanceof LCurlyToken)) {
-			const forBody = res.registerChild(this.makeExpr());
+			const forBody = res.registerChild(this.makeInlineStatement());
 			if (res.error) {
 				return res.failure(
 					new InvalidSyntaxSeclangError(
@@ -2029,7 +2111,7 @@ class Parser {
 			return this.makeStatementFor();
 		}
 
-		const expr = res.registerChild(this.makeExpr());
+		const statement = res.registerChild(this.makeInlineStatement());
 		if (res.error) {
 			return res.failure(
 				new InvalidSyntaxSeclangError(
@@ -2039,7 +2121,7 @@ class Parser {
 				)
 			);
 		}
-		return res.success(expr);
+		return res.success(statement);
 	}
 
 	// read any number of newlines/semicolons
@@ -2524,11 +2606,11 @@ class SeclangFunction extends SeclangBaseFunction {
 		const newContext = this.generateNewContext();
 
 		res.registerChild(this.checkArgs(this.argNames, args));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 		this.populateArgs(this.argNames, args, newContext);
 
 		const value = res.registerChild(interpreter.visit(this.bodyNode, newContext));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		return res.success(value);
 	}
@@ -2554,7 +2636,7 @@ class SeclangPrintFunction extends SeclangBaseFunction {
 		const res = new RuntimeResult();
 		const newContext = this.generateNewContext();
 		res.registerChild(this.checkArgs(this.argNames, args));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 		this.populateArgs(this.argNames, args, newContext);
 
 		console.log(newContext.symbolTable.get("value").asString());
@@ -2583,7 +2665,7 @@ class SeclangSqrtFunction extends SeclangBaseFunction {
 		const res = new RuntimeResult();
 		const newContext = this.generateNewContext();
 		res.registerChild(this.checkArgs(this.argNames, args));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 		this.populateArgs(this.argNames, args, newContext);
 
 		const val = newContext.symbolTable.get("value");
@@ -2702,36 +2784,83 @@ class SeclangList extends SeclangValue {
 class RuntimeResult {
 	public value: SeclangValue;
 	public error: SeclangError;
+	public returningVal: SeclangValue;
+	public breaking: boolean;
+	public continuing: boolean;
 
 	public constructor() {
-		this.value = null;
-		this.error = null;
+		this.reset();
 	}
 
-	public registerChild(res: RuntimeResult | SeclangValue) {
-		if (res instanceof RuntimeResult) {
-			if (res.error) {
-				this.error = res.error;
-			}
-			return res.value;
-		}
-		return res;
+	private reset() {
+		this.value = null;
+		this.error = null;
+		this.returningVal = null;
+		this.breaking = false;
+		this.continuing = false;
+	}
+
+	public registerChild(res: RuntimeResult) {
+		this.error = res.error;
+		this.returningVal = res.returningVal;
+		this.breaking = res.breaking;
+		this.continuing = res.continuing;
+		return res.value;
 	}
 
 	public success(value: SeclangValue) {
+		this.reset();
 		this.value = value;
 		return this;
 	}
 
+	public successReturn(value: SeclangValue) {
+		this.reset();
+		this.returningVal = value;
+		return this;
+	}
+
+	public successBreak() {
+		this.reset();
+		this.breaking = true;
+		return this;
+	}
+
+	public successContinue() {
+		this.reset();
+		this.continuing = true;
+		return this;
+	}
+
 	public failure(error: SeclangError) {
+		this.reset();
 		this.error = error;
 		return this;
+	}
+
+	public shouldReturnUp() {
+		return this.error || this.returningVal !== null || this.breaking || this.continuing;
 	}
 }
 
 class Interpreter {
 	public interpret(astRoot: Node, context: Context): InterpreterResult {
 		const result = this.visit(astRoot, context);
+		if (result.returningVal !== null) {
+			result.failure(
+				new RuntimeSeclangError(null, null, "'return' not inside a function", context)
+			);
+		}
+		if (result.breaking !== false) {
+			result.failure(
+				new RuntimeSeclangError(null, null, "'break' not inside a loop", context)
+			);
+		}
+		if (result.continuing !== false) {
+			result.failure(
+				new RuntimeSeclangError(null, null, "'continue' not inside a loop", context)
+			);
+		}
 		return new InterpreterResult(result.value, result.error);
 	}
 
@@ -2754,6 +2883,9 @@ class Interpreter {
 		if (node instanceof ListAccessNode) return this.visitListAccessNode(node, context);
 		if (node instanceof ListSetNode) return this.visitListSetNode(node, context);
 		if (node instanceof StatementsNode) return this.visitStatementsNode(node, context);
+		if (node instanceof ReturnNode) return this.visitReturnNode(node, context);
+		if (node instanceof BreakNode) return this.visitBreakNode(node, context);
+		if (node instanceof ContinueNode) return this.visitContinueNode(node, context);
 
 		return this.noVisitMethod(node, context);
 	}
@@ -2776,9 +2908,9 @@ class Interpreter {
 		const res = new RuntimeResult();
 
 		const leftVal = res.registerChild(this.visit(node.leftNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 		const rightVal = res.registerChild(this.visit(node.rightNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		let result: SeclangValue = null;
 		let error: SeclangError = null;
@@ -2820,7 +2952,7 @@ class Interpreter {
 	private visitUnaryOpNode(node: UnaryOpNode, context: Context) {
 		const res = new RuntimeResult();
 		const num = res.registerChild(this.visit(node.node, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		let result: SeclangValue = null;
 		let error: SeclangError = null;
@@ -2861,7 +2993,7 @@ class Interpreter {
 
 		const varName = node.varNameToken.value;
 		const assignValue = res.registerChild(this.visit(node.valueNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		if (context.symbolTable.get(varName) === null) {
 			return res.failure(
@@ -2885,7 +3017,7 @@ class Interpreter {
 		let assignValue: SeclangValue = new SeclangNumber(null);
 		if (node.initValNode !== null) {
 			assignValue = res.registerChild(this.visit(node.initValNode, context));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 		}
 
 		if (context.symbolTable.isDefined(varName)) {
@@ -2920,7 +3052,7 @@ class Interpreter {
 		}
 
 		const listLen = res.registerChild(this.visit(node.length, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		if (!(listLen instanceof SeclangNumber)) {
 			return res.failure(
@@ -2948,7 +3080,7 @@ class Interpreter {
 		newContext.symbolTable = new SymbolTable(context.symbolTable);
 
 		const conditionEval = res.registerChild(this.visit(node.condition, newContext));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 		if (conditionEval.toBool()) {
 			return this.visit(node.onTrue, newContext);
 		}
@@ -2967,13 +3099,16 @@ class Interpreter {
 
 		while (true) {
 			const conditionEval = res.registerChild(this.visit(node.condition, newContext));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 			if (conditionEval.toBool() === false) {
 				break;
 			}
 
 			res.registerChild(this.visit(node.body, newContext));
-			if (res.error) return res;
+			if (res.breaking) {
+				break;
+			}
+			if (res.shouldReturnUp() && !res.continuing) return res;
 		}
 
 		return res.success(new SeclangNumber(null));
@@ -2986,20 +3121,24 @@ class Interpreter {
 		newContext.symbolTable = new SymbolTable(context.symbolTable);
 
 		res.registerChild(this.visit(node.initStatement, newContext));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		while (true) {
 			const conditionEval = res.registerChild(this.visit(node.condition, newContext));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 			if (conditionEval.toBool() === false) {
 				break;
 			}
 
 			res.registerChild(this.visit(node.body, newContext));
-			if (res.error) return res;
+
+			if (res.breaking) {
+				break;
+			}
+			if (res.shouldReturnUp() && !res.continuing) return res;
 
 			res.registerChild(this.visit(node.iterateStatement, newContext));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 		}
 
 		return res.success(new SeclangNumber(null));
@@ -3034,7 +3173,7 @@ class Interpreter {
 		const res = new RuntimeResult();
 
 		let funNameToCall = res.registerChild(this.visit(node.funNameToCallNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		funNameToCall = funNameToCall.copy().setPos(node.posStart, node.posEnd);
 
@@ -3053,12 +3192,29 @@ class Interpreter {
 
 		for (const argNode of node.argNodes) {
 			const argVal = res.registerChild(this.visit(argNode, context));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 			args.push(argVal);
 		}
 
-		const returnVal = res.registerChild(funNameToCall.execute(args));
-		if (res.error) return res;
+		let returnVal: SeclangValue = new SeclangNumber(null);
+		res.registerChild(funNameToCall.execute(args));
+		if (res.shouldReturnUp()) {
+			if (res.returningVal !== null) {
+				returnVal = res.returningVal;
+			} else {
+				if (res.breaking !== false) {
+					return res.failure(
+						new RuntimeSeclangError(null, null, "'break' not inside a loop", context)
+					);
+				}
+				if (res.continuing !== false) {
+					return res.failure(
+						new RuntimeSeclangError(null, null, "'continue' not inside a loop", context)
+					);
+				}
+				return res;
+			}
+		}
 
 		return res.success(returnVal.copy().setPos(node.posStart, node.posEnd).setContext(context));
 	}
@@ -3069,7 +3225,7 @@ class Interpreter {
 		const elements: SeclangValue[] = [];
 		for (const elementNode of node.elementNodes) {
 			const element = res.registerChild(this.visit(elementNode, context));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 			elements.push(element);
 		}
 
@@ -3084,7 +3240,7 @@ class Interpreter {
 		const res = new RuntimeResult();
 
 		let list = res.registerChild(this.visit(node.listNameNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		list = list.copy().setPos(node.posStart, node.posEnd);
 
@@ -3100,7 +3256,7 @@ class Interpreter {
 		}
 
 		const index = res.registerChild(this.visit(node.indexNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		const [element, error] = list.accessEl(index);
 		if (error) {
@@ -3114,7 +3270,7 @@ class Interpreter {
 		const res = new RuntimeResult();
 
 		let list = res.registerChild(this.visit(node.listNameNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		list = list.copy().setPos(node.posStart, node.posEnd);
 
@@ -3130,10 +3286,10 @@ class Interpreter {
 		}
 
 		const index = res.registerChild(this.visit(node.indexNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		const newVal = res.registerChild(this.visit(node.valNode, context));
-		if (res.error) return res;
+		if (res.shouldReturnUp()) return res;
 
 		const [element, error] = list.setEl(index, newVal);
 		if (error) {
@@ -3149,10 +3305,30 @@ class Interpreter {
 		let lastVal: SeclangValue = new SeclangNumber(null);
 		for (const elementNode of node.statementNodes) {
 			lastVal = res.registerChild(this.visit(elementNode, context));
-			if (res.error) return res;
+			if (res.shouldReturnUp()) return res;
 		}
 
 		return res.success(lastVal);
+	}
+
+	private visitReturnNode(node: ReturnNode, context: Context) {
+		const res = new RuntimeResult();
+		let returnVal: SeclangValue = new SeclangNumber(null);
+		if (node.returnValue !== null) {
+			returnVal = res.registerChild(this.visit(node.returnValue, context));
+			if (res.shouldReturnUp()) return res;
+		}
+		return res.successReturn(returnVal);
+	}
+
+	private visitBreakNode(node: BreakNode, context: Context) {
+		const res = new RuntimeResult();
+		return res.successBreak();
+	}
+
+	private visitContinueNode(node: ContinueNode, context: Context) {
+		const res = new RuntimeResult();
+		return res.successContinue();
 	}
 
 	private noVisitMethod(node: Node, context: Context) {

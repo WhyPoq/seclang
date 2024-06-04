@@ -4,18 +4,23 @@ statements      : (NEWLINE|SEMILOCON)* (statement (NEWLINE|SEMILOCON)+)* (NEWLIN
 statementIf     : KEYWORD:if(expr) { statements }
                 : KEYWORD:if(expr) { statements } KEYWORD:else statement
                 : KEYWORD:if(expr) { statements } KEYWORD:else { statements }
-                : KEYWORD:if(expr) expr 
+                : KEYWORD:if(expr) inlineStatment 
 
 statementWhile  : KEYWORD:while(expr) { statements }
-                : KEYWORD:while(expr) expr 
+                : KEYWORD:while(expr) inlineStatment 
 
 statementFor    : KEYWORD:for(expr?; expr?; expr?) { statements }
-                : KEYWORD:for(expr?; expr?; expr?) expr 
+                : KEYWORD:for(expr?; expr?; expr?) inlineStatment 
 
 statement       : statementIf
                 : statementFor
                 : statementWhile
-                : expr
+                : inlineStatment
+
+inlineStatments : expr
+                : break
+                : continue
+                : return expr?
 
 expr            : KEYWORD:let IDENTIFIER EQ expr
                 : KEYWORD:let IDENTIFIER [expr]
@@ -53,5 +58,5 @@ atom            : INT|FLOAT|IDENTIFIER|STRING_L
 
 list            : [expr? (COMMA expr)*]
 
-funDef          : KEYWORD:function IDENTIFIER? L_PAREN IDENTIFIER? (COMMA IDENTIFIER)* R_PAREN expr
+funDef          : KEYWORD:function IDENTIFIER? L_PAREN IDENTIFIER? (COMMA IDENTIFIER)* R_PAREN inlineStatments
                 : KEYWORD:function IDENTIFIER? L_PAREN IDENTIFIER? (COMMA IDENTIFIER)* R_PAREN { statements }
