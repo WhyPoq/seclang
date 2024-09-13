@@ -2,6 +2,19 @@
 // ERRORS
 /* =================== */
 
+export class InstructionLimitReachedError extends Error {
+	constructor(message: string | undefined = undefined) {
+		super(message);
+		Object.setPrototypeOf(this, InstructionLimitReachedError.prototype);
+	}
+}
+export class VarsLimitReachedError extends Error {
+	constructor(message: string | undefined = undefined) {
+		super(message);
+		Object.setPrototypeOf(this, VarsLimitReachedError.prototype);
+	}
+}
+
 class SeclangError {
 	public posStart: Position;
 	public posEnd: Position;
@@ -151,6 +164,13 @@ class Position {
 		}
 	}
 
+	public peek() {
+		if (this.idx + 1 < this.fileText.length) {
+			return this.fileText[this.idx + 1];
+		}
+		return null;
+	}
+
 	public copy() {
 		return new Position(
 			this.idx,
@@ -170,10 +190,13 @@ class Position {
 enum TokType {
 	INT = "INT",
 	FLOAT = "FLOAT",
-	PLUS = "PLUS",
 	MINUS = "MINUS",
 	MUL = "MUL",
 	DIV = "DIV",
+	PLUS = "PLUS",
+	DPLUS = "DPLUS",
+	DMINUS = "DMINUS",
+	MOD = "MOD",
 	POW = "POW",
 	L_PAREN = "L_PAREN",
 	R_PAREN = "R_PAREN",
@@ -186,6 +209,8 @@ enum TokType {
 	IDENTIFIER = "IDENTIFIER",
 	KEYWORD = "KEYWORD",
 	EQ = "EQ",
+	PEQ = "PEQ",
+	MEQ = "MEQ",
 	EE = "EE",
 	NE = "NE",
 	LT = "LT",
@@ -270,9 +295,27 @@ class DivToken extends Token<void> {
 	}
 }
 
+class ModToken extends Token<void> {
+	public constructor(posStart: Position = null, posEnd: Position = null) {
+		super(TokType.MOD, null, posStart, posEnd);
+	}
+}
+
 class PowToken extends Token<void> {
 	public constructor(posStart: Position = null, posEnd: Position = null) {
 		super(TokType.POW, null, posStart, posEnd);
+	}
+}
+
+class DPLUSToken extends Token<void> {
+	public constructor(posStart: Position = null, posEnd: Position = null) {
+		super(TokType.DPLUS, null, posStart, posEnd);
+	}
+}
+
+class DMINUSToken extends Token<void> {
+	public constructor(posStart: Position = null, posEnd: Position = null) {
+		super(TokType.DMINUS, null, posStart, posEnd);
 	}
 }
 
@@ -339,6 +382,18 @@ class KeywordToken extends Token<string> {
 class EQToken extends Token<void> {
 	public constructor(posStart: Position = null, posEnd: Position = null) {
 		super(TokType.EQ, null, posStart, posEnd);
+	}
+}
+
+class PEQToken extends Token<void> {
+	public constructor(posStart: Position = null, posEnd: Position = null) {
+		super(TokType.PEQ, null, posStart, posEnd);
+	}
+}
+
+class MEQToken extends Token<void> {
+	public constructor(posStart: Position = null, posEnd: Position = null) {
+		super(TokType.MEQ, null, posStart, posEnd);
 	}
 }
 
@@ -420,6 +475,7 @@ type BinOperationToken =
 	| MinusToken
 	| MulToken
 	| DivToken
+	| ModToken
 	| PowToken
 	| EEToken
 	| NEToken
@@ -490,6 +546,10 @@ class Lexer {
 		this.pos.advance();
 	}
 
+	private peek() {
+		return this.pos.peek();
+	}
+
 	private isDigit(char: string) {
 		const charCode = char.charCodeAt(0);
 		return "0".charCodeAt(0) <= charCode && charCode <= "9".charCodeAt(0);
@@ -514,7 +574,7 @@ class Lexer {
 	}
 
 	private isWhitespace(char: string) {
-		const whitespaceChars = " \t";
+		const whitespaceChars = " \t\r";
 		return whitespaceChars.includes(char);
 	}
 
@@ -686,7 +746,20 @@ class Lexer {
 		const tokens: Token[] = [];
 
 		while (this.pos.curChar != null) {
-			if (this.isDigit(this.pos.curChar) || this.pos.curChar === ".")
+			if (this.pos.curChar == "/" && this.peek() == "/") {
+				while (this.pos.curChar != null && (this.pos.curChar as string) != "\n")
+					this.advance();
+			} else if (this.pos.curChar == "/" && this.peek() == "*") {
+				while (
+					this.pos.curChar != null &&
+					!((this.pos.curChar as string) == "*" && this.peek() == "/")
+				)
+					this.advance();
+				if ((this.pos.curChar as string) == "*" && this.peek() == "/") {
+					this.advance();
+					this.advance();
+				}
+			} else if (this.isDigit(this.pos.curChar) || this.pos.curChar === ".")
 				tokens.push(this.makeNumber());
 			else if (this.isIdentifierStartChar(this.pos.curChar))
 				tokens.push(this.makeIdentifier());
@@ -708,10 +781,18 @@ class Lexer {
 				if (res.error) return new LexerResult([], res.error);
 				tokens.push(res.token);
 			} else {
-				if (this.pos.curChar === "+") tokens.push(new PlusToken(this.pos.copy()));
-				else if (this.pos.curChar === "-") tokens.push(new MinusToken(this.pos.copy()));
+				if (this.pos.curChar === "+" && this.peek() === "=") {
+					const startPos = this.pos.copy();
+					this.advance();
+					tokens.push(new PEQToken(startPos, this.pos.copy()));
+				} else if (this.pos.curChar === "+") tokens.push(new PlusToken(this.pos.copy()));
+				else if (this.pos.curChar === "-" && this.peek() === "=") {
+					const startPos = this.pos.copy();
+					this.advance();
+					tokens.push(new MEQToken(startPos, this.pos.copy()));
+				} else if (this.pos.curChar === "-") tokens.push(new MinusToken(this.pos.copy()));
 				else if (this.pos.curChar === "/") tokens.push(new DivToken(this.pos.copy()));
-				else if (this.pos.curChar === "/") tokens.push(new DivToken(this.pos.copy()));
+				else if (this.pos.curChar === "%") tokens.push(new ModToken(this.pos.copy()));
 				else if (this.pos.curChar === "(") tokens.push(new LParenToken(this.pos.copy()));
 				else if (this.pos.curChar === ")") tokens.push(new RParenToken(this.pos.copy()));
 				else if (this.pos.curChar === "{") tokens.push(new LCurlyToken(this.pos.copy()));
@@ -1551,7 +1632,11 @@ class Parser {
 		let left = res.registerChild(this.makeFactor());
 		if (res.error) return res;
 
-		while (this.curToken instanceof MulToken || this.curToken instanceof DivToken) {
+		while (
+			this.curToken instanceof MulToken ||
+			this.curToken instanceof DivToken ||
+			this.curToken instanceof ModToken
+		) {
 			const operationToken = this.curToken;
 			res.registerAdvancement();
 			this.advance();
@@ -1703,13 +1788,29 @@ class Parser {
 			res.registerAdvancement();
 			this.advance();
 
-			if (this.curToken instanceof EQToken) {
+			if (
+				this.curToken instanceof EQToken ||
+				this.curToken instanceof PEQToken ||
+				this.curToken instanceof MEQToken
+			) {
+				const operationToken = this.curToken;
 				res.registerAdvancement();
 				this.advance();
-				const newVal = res.registerChild(this.makeExpr());
+				let assignVal = res.registerChild(this.makeExpr());
 				if (res.error) return res;
 
-				return res.success(new VarAssignNode(varName, newVal));
+				if (operationToken instanceof PEQToken) {
+					const plusToken = new PlusToken(operationToken.posStart, operationToken.posEnd);
+					assignVal = new BinOpNode(new VarAccessNode(varName), plusToken, assignVal);
+				} else if (operationToken instanceof MEQToken) {
+					const minusToken = new MinusToken(
+						operationToken.posStart,
+						operationToken.posEnd
+					);
+					assignVal = new BinOpNode(new VarAccessNode(varName), minusToken, assignVal);
+				}
+
+				return res.success(new VarAssignNode(varName, assignVal));
 			}
 			res.unregisterAdvancement();
 			this.unadvance();
@@ -1761,8 +1862,8 @@ class Parser {
 			returnVal = res.registerTry(this.makeExpr());
 			// backtrack if there were no expr to return
 			if (returnVal === null) {
-				res.unregisterAdvancement(res.backtrackCount);
 				this.unadvance(res.backtrackCount);
+				res.unregisterAdvancement(res.backtrackCount);
 			}
 
 			return res.success(new ReturnNode(returnVal, firstPos, this.curToken.posStart));
@@ -2149,27 +2250,20 @@ class Parser {
 		res.registerChild(this.readAllNewlines());
 
 		while (this.curToken != null) {
-			const curStatement = res.registerTry(this.makeStatement());
-
-			// backtrack and exit in case of an error
-			if (curStatement === null) {
-				res.unregisterAdvancement(res.backtrackCount);
-				this.unadvance(res.backtrackCount);
+			if (this.curToken instanceof EOFToken || this.curToken instanceof RCurlyToken) {
 				break;
 			}
 
+			const curStatement = res.registerChild(this.makeStatement());
 			statementNodes.push(curStatement);
 
-			// no more neline separators - stop reading statements
+			// no more newline separators - stop reading statements
 			if (!(this.curToken instanceof NewlineToken || this.curToken instanceof SemicolonToken))
 				break;
 
 			// read all other newlines
 			res.registerChild(this.readAllNewlines());
 		}
-
-		// read all other newlines
-		res.registerChild(this.readAllNewlines());
 
 		return res.success(
 			new StatementsNode(statementNodes, posStart, this.curToken.posEnd.copy())
@@ -2203,13 +2297,26 @@ class Context {
 // SYMBOL TABLE
 /* =================== */
 
-class SymbolTable {
+export class SymbolTable {
 	public symbols: Map<string, SeclangValue>;
 	public parentTable: SymbolTable;
+
+	public lenLimit: number | undefined;
+	public realLen: number;
 
 	public constructor(parentTable: SymbolTable = null) {
 		this.symbols = new Map<string, SeclangValue>();
 		this.parentTable = parentTable;
+		this.lenLimit = undefined;
+		this.realLen = 0;
+
+		if (parentTable !== null) {
+			let leftLenLimit = undefined;
+			if (parentTable.lenLimit !== undefined) {
+				leftLenLimit = parentTable.lenLimit - parentTable.realLen;
+			}
+			this.lenLimit = leftLenLimit;
+		}
 	}
 
 	public get(name: string) {
@@ -2241,11 +2348,25 @@ class SymbolTable {
 	}
 
 	public setNew(name: string, value: SeclangValue) {
+		this.realLen += 1;
+		if (value instanceof SeclangList) {
+			this.realLen += value.getRealLength();
+		}
+
+		if (this.lenLimit !== undefined && this.realLen > this.lenLimit)
+			throw new VarsLimitReachedError();
 		this.symbols.set(name, value);
 	}
 
 	public remove(name: string) {
-		this.symbols.delete(name);
+		if (this.symbols.has(name)) {
+			const toDelete = this.symbols.get(name);
+			if (toDelete instanceof SeclangList) {
+				this.realLen -= toDelete.getRealLength();
+			}
+			this.realLen -= 1;
+			this.symbols.delete(name);
+		}
 	}
 }
 
@@ -2259,7 +2380,7 @@ class InterpreterResult extends StepResult<SeclangValue> {
 	}
 }
 
-class SeclangValue {
+export class SeclangValue {
 	public context: Context;
 	public posStart: Position;
 	public posEnd: Position;
@@ -2324,6 +2445,10 @@ class SeclangValue {
 		return [null, this.illegalOperation(other)];
 	}
 
+	public modOf(other: SeclangValue): [SeclangValue, SeclangError] {
+		return [null, this.illegalOperation(other)];
+	}
+
 	public toPow(other: SeclangValue): [SeclangValue, SeclangError] {
 		return [null, this.illegalOperation(other)];
 	}
@@ -2369,7 +2494,7 @@ class SeclangValue {
 	}
 }
 
-class SeclangNumber extends SeclangValue {
+export class SeclangNumber extends SeclangValue {
 	public static false = new SeclangNumber(0);
 	public static true = new SeclangNumber(1);
 
@@ -2434,6 +2559,23 @@ class SeclangNumber extends SeclangValue {
 			];
 		}
 		return [new SeclangNumber(this.value / other.value).setContext(this.context), null];
+	}
+
+	public override modOf(other: SeclangValue): [SeclangNumber, SeclangError] {
+		if (!(other instanceof SeclangNumber)) return [null, this.illegalOperation(other)];
+
+		if (other.value === 0) {
+			return [
+				null,
+				new RuntimeSeclangError(
+					other.posStart,
+					other.posEnd,
+					"Modulo of zero",
+					this.context
+				),
+			];
+		}
+		return [new SeclangNumber(this.value % other.value).setContext(this.context), null];
 	}
 
 	public override toPow(other: SeclangValue): [SeclangNumber, SeclangError] {
@@ -2524,7 +2666,7 @@ class SeclangNumber extends SeclangValue {
 	}
 }
 
-class SeclangBaseFunction extends SeclangValue {
+export class SeclangBaseFunction extends SeclangValue {
 	public name: string;
 
 	protected constructor(name: string) {
@@ -2575,13 +2717,18 @@ class SeclangBaseFunction extends SeclangValue {
 		});
 	}
 
-	public execute(args: SeclangValue[]) {
+	public execute(
+		args: SeclangValue[],
+		logOutput: boolean,
+		stdout: string[],
+		instrConstraint: InstrConstraint
+	) {
 		throw new Error(`'execute' method is not implemented for function '${this.name}'`);
 		return null;
 	}
 }
 
-class SeclangFunction extends SeclangBaseFunction {
+export class SeclangFunction extends SeclangBaseFunction {
 	public bodyNode: Node;
 	public argNames: string[];
 
@@ -2599,10 +2746,15 @@ class SeclangFunction extends SeclangBaseFunction {
 		return copy;
 	}
 
-	public override execute(args: SeclangValue[]) {
+	public override execute(
+		args: SeclangValue[],
+		logOutput: boolean,
+		stdout: string[],
+		instrConstraint: InstrConstraint
+	) {
 		const res = new RuntimeResult();
 
-		const interpreter = new Interpreter();
+		const interpreter = new Interpreter(instrConstraint, logOutput, stdout);
 		const newContext = this.generateNewContext();
 
 		res.registerChild(this.checkArgs(this.argNames, args));
@@ -2632,14 +2784,16 @@ class SeclangPrintFunction extends SeclangBaseFunction {
 		return copy;
 	}
 
-	public override execute(args: SeclangValue[]) {
+	public override execute(args: SeclangValue[], logOutput: boolean, stdout: string[]) {
 		const res = new RuntimeResult();
 		const newContext = this.generateNewContext();
 		res.registerChild(this.checkArgs(this.argNames, args));
 		if (res.shouldReturnUp()) return res;
 		this.populateArgs(this.argNames, args, newContext);
 
-		console.log(newContext.symbolTable.get("value").asString());
+		const line = newContext.symbolTable.get("value").asString();
+		if (logOutput) console.log(line);
+		stdout.push(line);
 
 		return res.success(new SeclangNumber(null));
 	}
@@ -2680,11 +2834,92 @@ class SeclangSqrtFunction extends SeclangBaseFunction {
 			);
 		}
 		const sqrtRes = Math.sqrt(val.value);
-		return res.success(new SeclangNumber(sqrtRes));
+		return res.successReturn(new SeclangNumber(sqrtRes));
 	}
 }
 
-class SeclangString extends SeclangValue {
+class SeclangLenFunction extends SeclangBaseFunction {
+	public argNames: string[];
+
+	public constructor() {
+		super("len");
+		this.argNames = ["value"];
+	}
+
+	public override copy() {
+		let copy = new SeclangLenFunction();
+		copy.context = this.context;
+		copy.posStart = this.posStart;
+		copy.posEnd = this.posEnd;
+		return copy;
+	}
+
+	public override execute(args: SeclangValue[]) {
+		const res = new RuntimeResult();
+		const newContext = this.generateNewContext();
+		res.registerChild(this.checkArgs(this.argNames, args));
+		if (res.shouldReturnUp()) return res;
+		this.populateArgs(this.argNames, args, newContext);
+
+		const val = newContext.symbolTable.get("value");
+		if (!(val instanceof SeclangList || val instanceof SeclangString)) {
+			return res.failure(
+				new RuntimeSeclangError(
+					this.posStart,
+					this.posEnd,
+					`len accept argument of only list and string types`,
+					this.context
+				)
+			);
+		}
+		let length = 0;
+		if (val instanceof SeclangList) length = val.elements.length;
+		else if (val instanceof SeclangString) length = val.value.length;
+
+		return res.successReturn(new SeclangNumber(length));
+	}
+}
+
+class SeclangFloorFunction extends SeclangBaseFunction {
+	public argNames: string[];
+
+	public constructor() {
+		super("floor");
+		this.argNames = ["value"];
+	}
+
+	public override copy() {
+		let copy = new SeclangFloorFunction();
+		copy.context = this.context;
+		copy.posStart = this.posStart;
+		copy.posEnd = this.posEnd;
+		return copy;
+	}
+
+	public override execute(args: SeclangValue[]) {
+		const res = new RuntimeResult();
+		const newContext = this.generateNewContext();
+		res.registerChild(this.checkArgs(this.argNames, args));
+		if (res.shouldReturnUp()) return res;
+		this.populateArgs(this.argNames, args, newContext);
+
+		const val = newContext.symbolTable.get("value");
+		if (!(val instanceof SeclangNumber)) {
+			return res.failure(
+				new RuntimeSeclangError(
+					this.posStart,
+					this.posEnd,
+					`Floor accept argument of type number`,
+					this.context
+				)
+			);
+		}
+		const floorRes = Math.floor(val.value);
+		return res.successReturn(new SeclangNumber(floorRes));
+	}
+}
+
+export class SeclangString extends SeclangValue {
 	public value: string;
 
 	public constructor(value: string) {
@@ -2720,17 +2955,43 @@ class SeclangString extends SeclangValue {
 		return [null, this.illegalOperation(other)];
 	}
 
+	public accessEl(index: SeclangValue): [SeclangValue, SeclangError] {
+		if (index instanceof SeclangNumber) {
+			if (!(0 <= index.value && index.value < this.value.length))
+				return [null, this.outOfBounds(index)];
+
+			return [new SeclangString(this.value[index.value]).setContext(this.context), null];
+		}
+
+		return [null, this.illegalOperation(index)];
+	}
+
 	public toBool() {
 		return this.value.length > 0;
 	}
+
+	private outOfBounds(index: SeclangNumber) {
+		return new RuntimeSeclangError(this.posStart, index.posEnd, "Out of bounds", this.context);
+	}
 }
 
-class SeclangList extends SeclangValue {
+export class SeclangList extends SeclangValue {
 	public elements: SeclangValue[];
 
 	public constructor(elements: SeclangValue[]) {
 		super();
 		this.elements = elements;
+	}
+
+	public getRealLength() {
+		let curLen = 0;
+		for (const el of this.elements) {
+			if (el instanceof SeclangList) {
+				curLen += el.getRealLength();
+			}
+			curLen += 1;
+		}
+		return curLen;
 	}
 
 	public override copy() {
@@ -2843,7 +3104,24 @@ class RuntimeResult {
 	}
 }
 
+interface InstrConstraint {
+	cur: number;
+	limit: number | undefined;
+}
+
 class Interpreter {
+	public instrConstraint: InstrConstraint;
+	public logOutput: boolean;
+	public stdout: string[];
+
+	public constructor(instrConstraint: InstrConstraint, logOutput: boolean, stdout?: string[]) {
+		this.instrConstraint = instrConstraint;
+		this.logOutput = logOutput;
+
+		if (stdout === undefined) this.stdout = [];
+		else this.stdout = stdout;
+	}
+
 	public interpret(astRoot: Node, context: Context): InterpreterResult {
 		const result = this.visit(astRoot, context);
 		if (result.returningVal !== null) {
@@ -2865,6 +3143,17 @@ class Interpreter {
 	}
 
 	public visit(node: Node, context: Context): RuntimeResult {
+		if (
+			this.instrConstraint.limit !== undefined &&
+			this.instrConstraint.cur > this.instrConstraint.limit
+		) {
+			throw new InstructionLimitReachedError(
+				`Already executed ${this.instrConstraint.cur} out of possible ${this.instrConstraint.limit} instructions for this part of code`
+			);
+		}
+
+		this.instrConstraint.cur += 1;
+
 		if (node instanceof NumberNode) return this.visitNumberNode(node, context);
 		if (node instanceof StringLNode) return this.visitStringLNode(node, context);
 		if (node instanceof BinOpNode) return this.visitBinOpNode(node, context);
@@ -2920,6 +3209,7 @@ class Interpreter {
 		else if (node.operationToken instanceof MulToken)
 			[result, error] = leftVal.multBy(rightVal);
 		else if (node.operationToken instanceof DivToken) [result, error] = leftVal.divBy(rightVal);
+		else if (node.operationToken instanceof ModToken) [result, error] = leftVal.modOf(rightVal);
 		else if (node.operationToken instanceof PowToken) [result, error] = leftVal.toPow(rightVal);
 		else if (node.operationToken instanceof EEToken)
 			[result, error] = leftVal.getCompEq(rightVal);
@@ -3104,7 +3394,11 @@ class Interpreter {
 				break;
 			}
 
-			res.registerChild(this.visit(node.body, newContext));
+			const innerContext = new Context(null, newContext, node.posStart);
+			innerContext.symbolTable = new SymbolTable(newContext.symbolTable);
+
+			res.registerChild(this.visit(node.body, innerContext));
+
 			if (res.breaking) {
 				break;
 			}
@@ -3130,7 +3424,10 @@ class Interpreter {
 				break;
 			}
 
-			res.registerChild(this.visit(node.body, newContext));
+			const innerContext = new Context(null, newContext, node.posStart);
+			innerContext.symbolTable = new SymbolTable(newContext.symbolTable);
+
+			res.registerChild(this.visit(node.body, innerContext));
 
 			if (res.breaking) {
 				break;
@@ -3197,7 +3494,9 @@ class Interpreter {
 		}
 
 		let returnVal: SeclangValue = new SeclangNumber(null);
-		res.registerChild(funNameToCall.execute(args));
+		res.registerChild(
+			funNameToCall.execute(args, this.logOutput, this.stdout, this.instrConstraint)
+		);
 		if (res.shouldReturnUp()) {
 			if (res.returningVal !== null) {
 				returnVal = res.returningVal;
@@ -3244,12 +3543,12 @@ class Interpreter {
 
 		list = list.copy().setPos(node.posStart, node.posEnd);
 
-		if (!(list instanceof SeclangList)) {
+		if (!(list instanceof SeclangList || list instanceof SeclangString)) {
 			return res.failure(
 				new RuntimeSeclangError(
 					node.posStart,
 					node.posEnd,
-					`${list} is not a list`,
+					`${list} is not a list or a string`,
 					context
 				)
 			);
@@ -3348,14 +3647,28 @@ globalSymbolTable.setNew("true", SeclangNumber.true);
 globalSymbolTable.setNew("false", SeclangNumber.false);
 globalSymbolTable.setNew("print", new SeclangPrintFunction());
 globalSymbolTable.setNew("sqrt", new SeclangSqrtFunction());
+globalSymbolTable.setNew("len", new SeclangLenFunction());
+globalSymbolTable.setNew("floor", new SeclangFloorFunction());
 
-class RunResult extends StepResult<string> {
+class RunResult extends StepResult<SeclangValue> {
 	public toString() {
-		return this.result;
+		return this.result.toString();
 	}
 }
 
-const run = (filename: string, text: string): RunResult => {
+export interface Limits {
+	maxInstructions: number | undefined;
+	maxVariables: number | undefined;
+}
+
+export const run = (
+	text: string,
+	filename: string = "<program>",
+	limits: Limits = { maxInstructions: undefined, maxVariables: undefined },
+	logOutput: boolean = true,
+	stdout: string[] = [],
+	innerGlobalSymbolTable?: SymbolTable
+): RunResult => {
 	const lexer = new Lexer(filename, text);
 	const lexerRes = lexer.makeTokens();
 	if (lexerRes.error) {
@@ -3368,15 +3681,24 @@ const run = (filename: string, text: string): RunResult => {
 		return new RunResult(null, parseRes.error);
 	}
 
-	const interpreter = new Interpreter();
+	const interpreter = new Interpreter(
+		{ cur: 0, limit: limits.maxInstructions },
+		logOutput,
+		stdout
+	);
+
+	globalSymbolTable.lenLimit = limits.maxVariables;
+	if (innerGlobalSymbolTable !== undefined) {
+		innerGlobalSymbolTable.parentTable = globalSymbolTable;
+		innerGlobalSymbolTable.lenLimit = globalSymbolTable.lenLimit - globalSymbolTable.realLen;
+	}
+
 	const context = new Context("<program>");
-	context.symbolTable = globalSymbolTable;
+	context.symbolTable = innerGlobalSymbolTable ?? globalSymbolTable;
+
 	const interpreterRes = interpreter.interpret(parseRes.result, context);
 	if (interpreterRes.error) {
 		return new RunResult(null, interpreterRes.error);
 	}
-
-	return new RunResult(interpreterRes.toString(), null);
+	return new RunResult(interpreterRes.result, null);
 };
-
-export default run;

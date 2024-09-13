@@ -18,6 +18,29 @@ var __extends = (this && this.__extends) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.run = exports.SeclangList = exports.SeclangString = exports.SeclangFunction = exports.SeclangBaseFunction = exports.SeclangNumber = exports.SeclangValue = exports.SymbolTable = exports.VarsLimitReachedError = exports.InstructionLimitReachedError = void 0;
+var InstructionLimitReachedError = /** @class */ (function (_super) {
+    __extends(InstructionLimitReachedError, _super);
+    function InstructionLimitReachedError(message) {
+        if (message === void 0) { message = undefined; }
+        var _this = _super.call(this, message) || this;
+        Object.setPrototypeOf(_this, InstructionLimitReachedError.prototype);
+        return _this;
+    }
+    return InstructionLimitReachedError;
+}(Error));
+exports.InstructionLimitReachedError = InstructionLimitReachedError;
+var VarsLimitReachedError = /** @class */ (function (_super) {
+    __extends(VarsLimitReachedError, _super);
+    function VarsLimitReachedError(message) {
+        if (message === void 0) { message = undefined; }
+        var _this = _super.call(this, message) || this;
+        Object.setPrototypeOf(_this, VarsLimitReachedError.prototype);
+        return _this;
+    }
+    return VarsLimitReachedError;
+}(Error));
+exports.VarsLimitReachedError = VarsLimitReachedError;
 var SeclangError = /** @class */ (function () {
     function SeclangError(posStart, posEnd, errorName, details) {
         this.posStart = posStart;
@@ -139,6 +162,12 @@ var Position = /** @class */ (function () {
             this.curChar = null;
         }
     };
+    Position.prototype.peek = function () {
+        if (this.idx + 1 < this.fileText.length) {
+            return this.fileText[this.idx + 1];
+        }
+        return null;
+    };
     Position.prototype.copy = function () {
         return new Position(this.idx, this.line, this.col, this.filename, this.fileText, this.curChar);
     };
@@ -151,10 +180,13 @@ var TokType;
 (function (TokType) {
     TokType["INT"] = "INT";
     TokType["FLOAT"] = "FLOAT";
-    TokType["PLUS"] = "PLUS";
     TokType["MINUS"] = "MINUS";
     TokType["MUL"] = "MUL";
     TokType["DIV"] = "DIV";
+    TokType["PLUS"] = "PLUS";
+    TokType["DPLUS"] = "DPLUS";
+    TokType["DMINUS"] = "DMINUS";
+    TokType["MOD"] = "MOD";
     TokType["POW"] = "POW";
     TokType["L_PAREN"] = "L_PAREN";
     TokType["R_PAREN"] = "R_PAREN";
@@ -167,6 +199,8 @@ var TokType;
     TokType["IDENTIFIER"] = "IDENTIFIER";
     TokType["KEYWORD"] = "KEYWORD";
     TokType["EQ"] = "EQ";
+    TokType["PEQ"] = "PEQ";
+    TokType["MEQ"] = "MEQ";
     TokType["EE"] = "EE";
     TokType["NE"] = "NE";
     TokType["LT"] = "LT";
@@ -259,6 +293,15 @@ var DivToken = /** @class */ (function (_super) {
     }
     return DivToken;
 }(Token));
+var ModToken = /** @class */ (function (_super) {
+    __extends(ModToken, _super);
+    function ModToken(posStart, posEnd) {
+        if (posStart === void 0) { posStart = null; }
+        if (posEnd === void 0) { posEnd = null; }
+        return _super.call(this, TokType.MOD, null, posStart, posEnd) || this;
+    }
+    return ModToken;
+}(Token));
 var PowToken = /** @class */ (function (_super) {
     __extends(PowToken, _super);
     function PowToken(posStart, posEnd) {
@@ -267,6 +310,24 @@ var PowToken = /** @class */ (function (_super) {
         return _super.call(this, TokType.POW, null, posStart, posEnd) || this;
     }
     return PowToken;
+}(Token));
+var DPLUSToken = /** @class */ (function (_super) {
+    __extends(DPLUSToken, _super);
+    function DPLUSToken(posStart, posEnd) {
+        if (posStart === void 0) { posStart = null; }
+        if (posEnd === void 0) { posEnd = null; }
+        return _super.call(this, TokType.DPLUS, null, posStart, posEnd) || this;
+    }
+    return DPLUSToken;
+}(Token));
+var DMINUSToken = /** @class */ (function (_super) {
+    __extends(DMINUSToken, _super);
+    function DMINUSToken(posStart, posEnd) {
+        if (posStart === void 0) { posStart = null; }
+        if (posEnd === void 0) { posEnd = null; }
+        return _super.call(this, TokType.DMINUS, null, posStart, posEnd) || this;
+    }
+    return DMINUSToken;
 }(Token));
 var LParenToken = /** @class */ (function (_super) {
     __extends(LParenToken, _super);
@@ -366,6 +427,24 @@ var EQToken = /** @class */ (function (_super) {
         return _super.call(this, TokType.EQ, null, posStart, posEnd) || this;
     }
     return EQToken;
+}(Token));
+var PEQToken = /** @class */ (function (_super) {
+    __extends(PEQToken, _super);
+    function PEQToken(posStart, posEnd) {
+        if (posStart === void 0) { posStart = null; }
+        if (posEnd === void 0) { posEnd = null; }
+        return _super.call(this, TokType.PEQ, null, posStart, posEnd) || this;
+    }
+    return PEQToken;
+}(Token));
+var MEQToken = /** @class */ (function (_super) {
+    __extends(MEQToken, _super);
+    function MEQToken(posStart, posEnd) {
+        if (posStart === void 0) { posStart = null; }
+        if (posEnd === void 0) { posEnd = null; }
+        return _super.call(this, TokType.MEQ, null, posStart, posEnd) || this;
+    }
+    return MEQToken;
 }(Token));
 var EEToken = /** @class */ (function (_super) {
     __extends(EEToken, _super);
@@ -521,6 +600,9 @@ var Lexer = /** @class */ (function () {
     Lexer.prototype.advance = function () {
         this.pos.advance();
     };
+    Lexer.prototype.peek = function () {
+        return this.pos.peek();
+    };
     Lexer.prototype.isDigit = function (char) {
         var charCode = char.charCodeAt(0);
         return "0".charCodeAt(0) <= charCode && charCode <= "9".charCodeAt(0);
@@ -539,7 +621,7 @@ var Lexer = /** @class */ (function () {
         return this.isDigit(char) || this.isLetter(char) || char === "_";
     };
     Lexer.prototype.isWhitespace = function (char) {
-        var whitespaceChars = " \t";
+        var whitespaceChars = " \t\r";
         return whitespaceChars.includes(char);
     };
     Lexer.prototype.isKeyword = function (identifier) {
@@ -680,7 +762,20 @@ var Lexer = /** @class */ (function () {
     Lexer.prototype.makeTokens = function () {
         var tokens = [];
         while (this.pos.curChar != null) {
-            if (this.isDigit(this.pos.curChar) || this.pos.curChar === ".")
+            if (this.pos.curChar == "/" && this.peek() == "/") {
+                while (this.pos.curChar != null && this.pos.curChar != "\n")
+                    this.advance();
+            }
+            else if (this.pos.curChar == "/" && this.peek() == "*") {
+                while (this.pos.curChar != null &&
+                    !(this.pos.curChar == "*" && this.peek() == "/"))
+                    this.advance();
+                if (this.pos.curChar == "*" && this.peek() == "/") {
+                    this.advance();
+                    this.advance();
+                }
+            }
+            else if (this.isDigit(this.pos.curChar) || this.pos.curChar === ".")
                 tokens.push(this.makeNumber());
             else if (this.isIdentifierStartChar(this.pos.curChar))
                 tokens.push(this.makeIdentifier());
@@ -713,14 +808,24 @@ var Lexer = /** @class */ (function () {
                 tokens.push(res.token);
             }
             else {
-                if (this.pos.curChar === "+")
+                if (this.pos.curChar === "+" && this.peek() === "=") {
+                    var startPos = this.pos.copy();
+                    this.advance();
+                    tokens.push(new PEQToken(startPos, this.pos.copy()));
+                }
+                else if (this.pos.curChar === "+")
                     tokens.push(new PlusToken(this.pos.copy()));
+                else if (this.pos.curChar === "-" && this.peek() === "=") {
+                    var startPos = this.pos.copy();
+                    this.advance();
+                    tokens.push(new MEQToken(startPos, this.pos.copy()));
+                }
                 else if (this.pos.curChar === "-")
                     tokens.push(new MinusToken(this.pos.copy()));
                 else if (this.pos.curChar === "/")
                     tokens.push(new DivToken(this.pos.copy()));
-                else if (this.pos.curChar === "/")
-                    tokens.push(new DivToken(this.pos.copy()));
+                else if (this.pos.curChar === "%")
+                    tokens.push(new ModToken(this.pos.copy()));
                 else if (this.pos.curChar === "(")
                     tokens.push(new LParenToken(this.pos.copy()));
                 else if (this.pos.curChar === ")")
@@ -1414,7 +1519,9 @@ var Parser = /** @class */ (function () {
         var left = res.registerChild(this.makeFactor());
         if (res.error)
             return res;
-        while (this.curToken instanceof MulToken || this.curToken instanceof DivToken) {
+        while (this.curToken instanceof MulToken ||
+            this.curToken instanceof DivToken ||
+            this.curToken instanceof ModToken) {
             var operationToken = this.curToken;
             res.registerAdvancement();
             this.advance();
@@ -1528,13 +1635,24 @@ var Parser = /** @class */ (function () {
             var varName = this.curToken;
             res.registerAdvancement();
             this.advance();
-            if (this.curToken instanceof EQToken) {
+            if (this.curToken instanceof EQToken ||
+                this.curToken instanceof PEQToken ||
+                this.curToken instanceof MEQToken) {
+                var operationToken = this.curToken;
                 res.registerAdvancement();
                 this.advance();
-                var newVal = res.registerChild(this.makeExpr());
+                var assignVal = res.registerChild(this.makeExpr());
                 if (res.error)
                     return res;
-                return res.success(new VarAssignNode(varName, newVal));
+                if (operationToken instanceof PEQToken) {
+                    var plusToken = new PlusToken(operationToken.posStart, operationToken.posEnd);
+                    assignVal = new BinOpNode(new VarAccessNode(varName), plusToken, assignVal);
+                }
+                else if (operationToken instanceof MEQToken) {
+                    var minusToken = new MinusToken(operationToken.posStart, operationToken.posEnd);
+                    assignVal = new BinOpNode(new VarAccessNode(varName), minusToken, assignVal);
+                }
+                return res.success(new VarAssignNode(varName, assignVal));
             }
             res.unregisterAdvancement();
             this.unadvance();
@@ -1574,8 +1692,8 @@ var Parser = /** @class */ (function () {
             returnVal = res.registerTry(this.makeExpr());
             // backtrack if there were no expr to return
             if (returnVal === null) {
-                res.unregisterAdvancement(res.backtrackCount);
                 this.unadvance(res.backtrackCount);
+                res.unregisterAdvancement(res.backtrackCount);
             }
             return res.success(new ReturnNode(returnVal, firstPos, this.curToken.posStart));
         }
@@ -1789,22 +1907,17 @@ var Parser = /** @class */ (function () {
         }
         res.registerChild(this.readAllNewlines());
         while (this.curToken != null) {
-            var curStatement = res.registerTry(this.makeStatement());
-            // backtrack and exit in case of an error
-            if (curStatement === null) {
-                res.unregisterAdvancement(res.backtrackCount);
-                this.unadvance(res.backtrackCount);
+            if (this.curToken instanceof EOFToken || this.curToken instanceof RCurlyToken) {
                 break;
             }
+            var curStatement = res.registerChild(this.makeStatement());
             statementNodes.push(curStatement);
-            // no more neline separators - stop reading statements
+            // no more newline separators - stop reading statements
             if (!(this.curToken instanceof NewlineToken || this.curToken instanceof SemicolonToken))
                 break;
             // read all other newlines
             res.registerChild(this.readAllNewlines());
         }
-        // read all other newlines
-        res.registerChild(this.readAllNewlines());
         return res.success(new StatementsNode(statementNodes, posStart, this.curToken.posEnd.copy()));
     };
     return Parser;
@@ -1831,6 +1944,15 @@ var SymbolTable = /** @class */ (function () {
         if (parentTable === void 0) { parentTable = null; }
         this.symbols = new Map();
         this.parentTable = parentTable;
+        this.lenLimit = undefined;
+        this.realLen = 0;
+        if (parentTable !== null) {
+            var leftLenLimit = undefined;
+            if (parentTable.lenLimit !== undefined) {
+                leftLenLimit = parentTable.lenLimit - parentTable.realLen;
+            }
+            this.lenLimit = leftLenLimit;
+        }
     }
     SymbolTable.prototype.get = function (name) {
         var curTable = this;
@@ -1855,13 +1977,27 @@ var SymbolTable = /** @class */ (function () {
         curTable.symbols.set(name, value);
     };
     SymbolTable.prototype.setNew = function (name, value) {
+        this.realLen += 1;
+        if (value instanceof SeclangList) {
+            this.realLen += value.getRealLength();
+        }
+        if (this.lenLimit !== undefined && this.realLen > this.lenLimit)
+            throw new VarsLimitReachedError();
         this.symbols.set(name, value);
     };
     SymbolTable.prototype.remove = function (name) {
-        this.symbols.delete(name);
+        if (this.symbols.has(name)) {
+            var toDelete = this.symbols.get(name);
+            if (toDelete instanceof SeclangList) {
+                this.realLen -= toDelete.getRealLength();
+            }
+            this.realLen -= 1;
+            this.symbols.delete(name);
+        }
     };
     return SymbolTable;
 }());
+exports.SymbolTable = SymbolTable;
 /* =================== */
 // INTERPRETER
 /* =================== */
@@ -1923,6 +2059,9 @@ var SeclangValue = /** @class */ (function () {
     SeclangValue.prototype.divBy = function (other) {
         return [null, this.illegalOperation(other)];
     };
+    SeclangValue.prototype.modOf = function (other) {
+        return [null, this.illegalOperation(other)];
+    };
     SeclangValue.prototype.toPow = function (other) {
         return [null, this.illegalOperation(other)];
     };
@@ -1958,6 +2097,7 @@ var SeclangValue = /** @class */ (function () {
     };
     return SeclangValue;
 }());
+exports.SeclangValue = SeclangValue;
 var SeclangNumber = /** @class */ (function (_super) {
     __extends(SeclangNumber, _super);
     function SeclangNumber(value) {
@@ -2010,6 +2150,17 @@ var SeclangNumber = /** @class */ (function (_super) {
             ];
         }
         return [new SeclangNumber(this.value / other.value).setContext(this.context), null];
+    };
+    SeclangNumber.prototype.modOf = function (other) {
+        if (!(other instanceof SeclangNumber))
+            return [null, this.illegalOperation(other)];
+        if (other.value === 0) {
+            return [
+                null,
+                new RuntimeSeclangError(other.posStart, other.posEnd, "Modulo of zero", this.context),
+            ];
+        }
+        return [new SeclangNumber(this.value % other.value).setContext(this.context), null];
     };
     SeclangNumber.prototype.toPow = function (other) {
         if (!(other instanceof SeclangNumber))
@@ -2097,6 +2248,7 @@ var SeclangNumber = /** @class */ (function (_super) {
     SeclangNumber.true = new SeclangNumber(1);
     return SeclangNumber;
 }(SeclangValue));
+exports.SeclangNumber = SeclangNumber;
 var SeclangBaseFunction = /** @class */ (function (_super) {
     __extends(SeclangBaseFunction, _super);
     function SeclangBaseFunction(name) {
@@ -2134,12 +2286,13 @@ var SeclangBaseFunction = /** @class */ (function (_super) {
             newContext.symbolTable.setNew(argName, argValue);
         });
     };
-    SeclangBaseFunction.prototype.execute = function (args) {
+    SeclangBaseFunction.prototype.execute = function (args, logOutput, stdout, instrConstraint) {
         throw new Error("'execute' method is not implemented for function '".concat(this.name, "'"));
         return null;
     };
     return SeclangBaseFunction;
 }(SeclangValue));
+exports.SeclangBaseFunction = SeclangBaseFunction;
 var SeclangFunction = /** @class */ (function (_super) {
     __extends(SeclangFunction, _super);
     function SeclangFunction(name, bodyNode, argNames) {
@@ -2155,9 +2308,9 @@ var SeclangFunction = /** @class */ (function (_super) {
         copy.posEnd = this.posEnd;
         return copy;
     };
-    SeclangFunction.prototype.execute = function (args) {
+    SeclangFunction.prototype.execute = function (args, logOutput, stdout, instrConstraint) {
         var res = new RuntimeResult();
-        var interpreter = new Interpreter();
+        var interpreter = new Interpreter(instrConstraint, logOutput, stdout);
         var newContext = this.generateNewContext();
         res.registerChild(this.checkArgs(this.argNames, args));
         if (res.shouldReturnUp())
@@ -2170,6 +2323,7 @@ var SeclangFunction = /** @class */ (function (_super) {
     };
     return SeclangFunction;
 }(SeclangBaseFunction));
+exports.SeclangFunction = SeclangFunction;
 var SeclangPrintFunction = /** @class */ (function (_super) {
     __extends(SeclangPrintFunction, _super);
     function SeclangPrintFunction() {
@@ -2184,14 +2338,17 @@ var SeclangPrintFunction = /** @class */ (function (_super) {
         copy.posEnd = this.posEnd;
         return copy;
     };
-    SeclangPrintFunction.prototype.execute = function (args) {
+    SeclangPrintFunction.prototype.execute = function (args, logOutput, stdout) {
         var res = new RuntimeResult();
         var newContext = this.generateNewContext();
         res.registerChild(this.checkArgs(this.argNames, args));
         if (res.shouldReturnUp())
             return res;
         this.populateArgs(this.argNames, args, newContext);
-        console.log(newContext.symbolTable.get("value").asString());
+        var line = newContext.symbolTable.get("value").asString();
+        if (logOutput)
+            console.log(line);
+        stdout.push(line);
         return res.success(new SeclangNumber(null));
     };
     return SeclangPrintFunction;
@@ -2222,9 +2379,73 @@ var SeclangSqrtFunction = /** @class */ (function (_super) {
             return res.failure(new RuntimeSeclangError(this.posStart, this.posEnd, "sqrt accept argument of type number", this.context));
         }
         var sqrtRes = Math.sqrt(val.value);
-        return res.success(new SeclangNumber(sqrtRes));
+        return res.successReturn(new SeclangNumber(sqrtRes));
     };
     return SeclangSqrtFunction;
+}(SeclangBaseFunction));
+var SeclangLenFunction = /** @class */ (function (_super) {
+    __extends(SeclangLenFunction, _super);
+    function SeclangLenFunction() {
+        var _this = _super.call(this, "len") || this;
+        _this.argNames = ["value"];
+        return _this;
+    }
+    SeclangLenFunction.prototype.copy = function () {
+        var copy = new SeclangLenFunction();
+        copy.context = this.context;
+        copy.posStart = this.posStart;
+        copy.posEnd = this.posEnd;
+        return copy;
+    };
+    SeclangLenFunction.prototype.execute = function (args) {
+        var res = new RuntimeResult();
+        var newContext = this.generateNewContext();
+        res.registerChild(this.checkArgs(this.argNames, args));
+        if (res.shouldReturnUp())
+            return res;
+        this.populateArgs(this.argNames, args, newContext);
+        var val = newContext.symbolTable.get("value");
+        if (!(val instanceof SeclangList || val instanceof SeclangString)) {
+            return res.failure(new RuntimeSeclangError(this.posStart, this.posEnd, "len accept argument of only list and string types", this.context));
+        }
+        var length = 0;
+        if (val instanceof SeclangList)
+            length = val.elements.length;
+        else if (val instanceof SeclangString)
+            length = val.value.length;
+        return res.successReturn(new SeclangNumber(length));
+    };
+    return SeclangLenFunction;
+}(SeclangBaseFunction));
+var SeclangFloorFunction = /** @class */ (function (_super) {
+    __extends(SeclangFloorFunction, _super);
+    function SeclangFloorFunction() {
+        var _this = _super.call(this, "floor") || this;
+        _this.argNames = ["value"];
+        return _this;
+    }
+    SeclangFloorFunction.prototype.copy = function () {
+        var copy = new SeclangFloorFunction();
+        copy.context = this.context;
+        copy.posStart = this.posStart;
+        copy.posEnd = this.posEnd;
+        return copy;
+    };
+    SeclangFloorFunction.prototype.execute = function (args) {
+        var res = new RuntimeResult();
+        var newContext = this.generateNewContext();
+        res.registerChild(this.checkArgs(this.argNames, args));
+        if (res.shouldReturnUp())
+            return res;
+        this.populateArgs(this.argNames, args, newContext);
+        var val = newContext.symbolTable.get("value");
+        if (!(val instanceof SeclangNumber)) {
+            return res.failure(new RuntimeSeclangError(this.posStart, this.posEnd, "Floor accept argument of type number", this.context));
+        }
+        var floorRes = Math.floor(val.value);
+        return res.successReturn(new SeclangNumber(floorRes));
+    };
+    return SeclangFloorFunction;
 }(SeclangBaseFunction));
 var SeclangString = /** @class */ (function (_super) {
     __extends(SeclangString, _super);
@@ -2256,11 +2477,23 @@ var SeclangString = /** @class */ (function (_super) {
             return [new SeclangString(this.value + other.value).setContext(this.context), null];
         return [null, this.illegalOperation(other)];
     };
+    SeclangString.prototype.accessEl = function (index) {
+        if (index instanceof SeclangNumber) {
+            if (!(0 <= index.value && index.value < this.value.length))
+                return [null, this.outOfBounds(index)];
+            return [new SeclangString(this.value[index.value]).setContext(this.context), null];
+        }
+        return [null, this.illegalOperation(index)];
+    };
     SeclangString.prototype.toBool = function () {
         return this.value.length > 0;
     };
+    SeclangString.prototype.outOfBounds = function (index) {
+        return new RuntimeSeclangError(this.posStart, index.posEnd, "Out of bounds", this.context);
+    };
     return SeclangString;
 }(SeclangValue));
+exports.SeclangString = SeclangString;
 var SeclangList = /** @class */ (function (_super) {
     __extends(SeclangList, _super);
     function SeclangList(elements) {
@@ -2268,6 +2501,17 @@ var SeclangList = /** @class */ (function (_super) {
         _this.elements = elements;
         return _this;
     }
+    SeclangList.prototype.getRealLength = function () {
+        var curLen = 0;
+        for (var _i = 0, _a = this.elements; _i < _a.length; _i++) {
+            var el = _a[_i];
+            if (el instanceof SeclangList) {
+                curLen += el.getRealLength();
+            }
+            curLen += 1;
+        }
+        return curLen;
+    };
     SeclangList.prototype.copy = function () {
         var copy = new SeclangList(this.elements);
         copy.context = this.context;
@@ -2306,6 +2550,7 @@ var SeclangList = /** @class */ (function (_super) {
     };
     return SeclangList;
 }(SeclangValue));
+exports.SeclangList = SeclangList;
 var RuntimeResult = /** @class */ (function () {
     function RuntimeResult() {
         this.reset();
@@ -2355,7 +2600,13 @@ var RuntimeResult = /** @class */ (function () {
     return RuntimeResult;
 }());
 var Interpreter = /** @class */ (function () {
-    function Interpreter() {
+    function Interpreter(instrConstraint, logOutput, stdout) {
+        this.instrConstraint = instrConstraint;
+        this.logOutput = logOutput;
+        if (stdout === undefined)
+            this.stdout = [];
+        else
+            this.stdout = stdout;
     }
     Interpreter.prototype.interpret = function (astRoot, context) {
         var result = this.visit(astRoot, context);
@@ -2371,6 +2622,11 @@ var Interpreter = /** @class */ (function () {
         return new InterpreterResult(result.value, result.error);
     };
     Interpreter.prototype.visit = function (node, context) {
+        if (this.instrConstraint.limit !== undefined &&
+            this.instrConstraint.cur > this.instrConstraint.limit) {
+            throw new InstructionLimitReachedError("Already executed ".concat(this.instrConstraint.cur, " out of possible ").concat(this.instrConstraint.limit, " instructions for this part of code"));
+        }
+        this.instrConstraint.cur += 1;
         if (node instanceof NumberNode)
             return this.visitNumberNode(node, context);
         if (node instanceof StringLNode)
@@ -2428,7 +2684,7 @@ var Interpreter = /** @class */ (function () {
         return new RuntimeResult().success(str);
     };
     Interpreter.prototype.visitBinOpNode = function (node, context) {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
         var res = new RuntimeResult();
         var leftVal = res.registerChild(this.visit(node.leftNode, context));
         if (res.shouldReturnUp())
@@ -2446,24 +2702,26 @@ var Interpreter = /** @class */ (function () {
             _c = leftVal.multBy(rightVal), result = _c[0], error = _c[1];
         else if (node.operationToken instanceof DivToken)
             _d = leftVal.divBy(rightVal), result = _d[0], error = _d[1];
+        else if (node.operationToken instanceof ModToken)
+            _e = leftVal.modOf(rightVal), result = _e[0], error = _e[1];
         else if (node.operationToken instanceof PowToken)
-            _e = leftVal.toPow(rightVal), result = _e[0], error = _e[1];
+            _f = leftVal.toPow(rightVal), result = _f[0], error = _f[1];
         else if (node.operationToken instanceof EEToken)
-            _f = leftVal.getCompEq(rightVal), result = _f[0], error = _f[1];
+            _g = leftVal.getCompEq(rightVal), result = _g[0], error = _g[1];
         else if (node.operationToken instanceof NEToken)
-            _g = leftVal.getCompNe(rightVal), result = _g[0], error = _g[1];
+            _h = leftVal.getCompNe(rightVal), result = _h[0], error = _h[1];
         else if (node.operationToken instanceof LTToken)
-            _h = leftVal.getCompLt(rightVal), result = _h[0], error = _h[1];
+            _j = leftVal.getCompLt(rightVal), result = _j[0], error = _j[1];
         else if (node.operationToken instanceof GTToken)
-            _j = leftVal.getCompGt(rightVal), result = _j[0], error = _j[1];
+            _k = leftVal.getCompGt(rightVal), result = _k[0], error = _k[1];
         else if (node.operationToken instanceof LTEToken)
-            _k = leftVal.getCompLte(rightVal), result = _k[0], error = _k[1];
+            _l = leftVal.getCompLte(rightVal), result = _l[0], error = _l[1];
         else if (node.operationToken instanceof GTEToken)
-            _l = leftVal.getCompGte(rightVal), result = _l[0], error = _l[1];
+            _m = leftVal.getCompGte(rightVal), result = _m[0], error = _m[1];
         else if (node.operationToken instanceof DAndToken)
-            _m = leftVal.getAndWith(rightVal), result = _m[0], error = _m[1];
+            _o = leftVal.getAndWith(rightVal), result = _o[0], error = _o[1];
         else if (node.operationToken instanceof DOrToken)
-            _o = leftVal.getOrWith(rightVal), result = _o[0], error = _o[1];
+            _p = leftVal.getOrWith(rightVal), result = _p[0], error = _p[1];
         else {
             throw new Error("Not implemented operator " + node.operationToken);
         }
@@ -2574,7 +2832,9 @@ var Interpreter = /** @class */ (function () {
             if (conditionEval.toBool() === false) {
                 break;
             }
-            res.registerChild(this.visit(node.body, newContext));
+            var innerContext = new Context(null, newContext, node.posStart);
+            innerContext.symbolTable = new SymbolTable(newContext.symbolTable);
+            res.registerChild(this.visit(node.body, innerContext));
             if (res.breaking) {
                 break;
             }
@@ -2597,7 +2857,9 @@ var Interpreter = /** @class */ (function () {
             if (conditionEval.toBool() === false) {
                 break;
             }
-            res.registerChild(this.visit(node.body, newContext));
+            var innerContext = new Context(null, newContext, node.posStart);
+            innerContext.symbolTable = new SymbolTable(newContext.symbolTable);
+            res.registerChild(this.visit(node.body, innerContext));
             if (res.breaking) {
                 break;
             }
@@ -2646,7 +2908,7 @@ var Interpreter = /** @class */ (function () {
             args.push(argVal);
         }
         var returnVal = new SeclangNumber(null);
-        res.registerChild(funNameToCall.execute(args));
+        res.registerChild(funNameToCall.execute(args, this.logOutput, this.stdout, this.instrConstraint));
         if (res.shouldReturnUp()) {
             if (res.returningVal !== null) {
                 returnVal = res.returningVal;
@@ -2684,8 +2946,8 @@ var Interpreter = /** @class */ (function () {
         if (res.shouldReturnUp())
             return res;
         list = list.copy().setPos(node.posStart, node.posEnd);
-        if (!(list instanceof SeclangList)) {
-            return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "".concat(list, " is not a list"), context));
+        if (!(list instanceof SeclangList || list instanceof SeclangString)) {
+            return res.failure(new RuntimeSeclangError(node.posStart, node.posEnd, "".concat(list, " is not a list or a string"), context));
         }
         var index = res.registerChild(this.visit(node.indexNode, context));
         if (res.shouldReturnUp())
@@ -2760,17 +3022,23 @@ globalSymbolTable.setNew("true", SeclangNumber.true);
 globalSymbolTable.setNew("false", SeclangNumber.false);
 globalSymbolTable.setNew("print", new SeclangPrintFunction());
 globalSymbolTable.setNew("sqrt", new SeclangSqrtFunction());
+globalSymbolTable.setNew("len", new SeclangLenFunction());
+globalSymbolTable.setNew("floor", new SeclangFloorFunction());
 var RunResult = /** @class */ (function (_super) {
     __extends(RunResult, _super);
     function RunResult() {
         return _super !== null && _super.apply(this, arguments) || this;
     }
     RunResult.prototype.toString = function () {
-        return this.result;
+        return this.result.toString();
     };
     return RunResult;
 }(StepResult));
-var run = function (filename, text) {
+var run = function (text, filename, limits, logOutput, stdout, innerGlobalSymbolTable) {
+    if (filename === void 0) { filename = "<program>"; }
+    if (limits === void 0) { limits = { maxInstructions: undefined, maxVariables: undefined }; }
+    if (logOutput === void 0) { logOutput = true; }
+    if (stdout === void 0) { stdout = []; }
     var lexer = new Lexer(filename, text);
     var lexerRes = lexer.makeTokens();
     if (lexerRes.error) {
@@ -2781,14 +3049,19 @@ var run = function (filename, text) {
     if (parseRes.error) {
         return new RunResult(null, parseRes.error);
     }
-    var interpreter = new Interpreter();
+    var interpreter = new Interpreter({ cur: 0, limit: limits.maxInstructions }, logOutput, stdout);
+    globalSymbolTable.lenLimit = limits.maxVariables;
+    if (innerGlobalSymbolTable !== undefined) {
+        innerGlobalSymbolTable.parentTable = globalSymbolTable;
+        innerGlobalSymbolTable.lenLimit = globalSymbolTable.lenLimit - globalSymbolTable.realLen;
+    }
     var context = new Context("<program>");
-    context.symbolTable = globalSymbolTable;
+    context.symbolTable = innerGlobalSymbolTable !== null && innerGlobalSymbolTable !== void 0 ? innerGlobalSymbolTable : globalSymbolTable;
     var interpreterRes = interpreter.interpret(parseRes.result, context);
     if (interpreterRes.error) {
         return new RunResult(null, interpreterRes.error);
     }
-    return new RunResult(interpreterRes.toString(), null);
+    return new RunResult(interpreterRes.result, null);
 };
-exports.default = run;
+exports.run = run;
 //# sourceMappingURL=seclang.js.map

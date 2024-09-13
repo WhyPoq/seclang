@@ -1,4 +1,4 @@
-import seclang from "./seclang";
+import { run, InstructionLimitReachedError, VarsLimitReachedError } from "./seclang";
 import * as readline from "readline-sync";
 
 while (true) {
@@ -8,11 +8,21 @@ while (true) {
 		break;
 	}
 
-	const runResult = seclang("<stdin>", text);
+	try {
+		const runResult = run(text, "<stdin>");
 
-	if (runResult.error) {
-		console.log(runResult.error.toString());
-	} else {
-		console.log(runResult.result);
+		if (runResult.error) {
+			console.log(runResult.error.toString());
+		} else {
+			console.log(runResult.result.toString());
+		}
+	} catch (e) {
+		if (e instanceof InstructionLimitReachedError) {
+			console.log("Too many instructions. Force stop");
+		} else if (e instanceof VarsLimitReachedError) {
+			console.log("Too many variables. Force stop");
+		} else {
+			throw e;
+		}
 	}
 }

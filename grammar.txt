@@ -25,6 +25,8 @@ inlineStatments : expr
 expr            : KEYWORD:let IDENTIFIER EQ expr
                 : KEYWORD:let IDENTIFIER [expr]
                 : IDENTIFIER EQ expr
+                : IDENTIFIER PEQ expr
+                : IDENTIFIER MEQ expr
                 : andLogExpr (D_OR andLogExpr)*
 
 andLogExpr      : compExpr (D_AND compExpr)*     
@@ -34,7 +36,7 @@ compExpr        : noExpr ((EE|NE|LT|GT|LTE|GTE) noExpr)*
 noExpr          : NOT noExpr
                 : arithmExpr
 
-arithmExpr      : term ((PLUS|MINUS) term)*
+arithmExpr      : term ((PLUS|MINUS|MODULO) term)*
 
 term            : factor ((MUL|DIV) factor)*
 
