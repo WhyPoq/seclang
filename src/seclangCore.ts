@@ -2788,10 +2788,12 @@ class SeclangPrintFunction extends SeclangBaseFunction {
 		const res = new RuntimeResult();
 		const newContext = this.generateNewContext();
 		res.registerChild(this.checkArgs(this.argNames, args));
+
 		if (res.shouldReturnUp()) return res;
 		this.populateArgs(this.argNames, args, newContext);
 
 		const line = newContext.symbolTable.get("value").asString();
+
 		if (logOutput) console.log(line);
 		stdout.push(line);
 

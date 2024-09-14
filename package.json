@@ -1,21 +1,26 @@
 {
-	"name": "safe-language",
+	"name": "seclang",
 	"version": "1.0.0",
-	"main": "main.js",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
 	"scripts": {
 		"build": "tsc",
-		"start": "npm run build && node dist/main.js"
+		"prepare": "npm run build"
 	},
-	"keywords": [],
-	"author": "",
-	"license": "ISC",
-	"description": "",
+	"bin": {
+		"seclang": "./dist/.bin/seclang.js"
+	},
+	"files": [
+		"dist"
+	],
+	"license": "MIT",
+	"description": "Safe language (or not) to execute user submitted code on the server",
 	"devDependencies": {
 		"@types/node": "^20.16.5",
+		"@types/readline-sync": "^1.4.8",
 		"typescript": "^5.4.5"
 	},
 	"dependencies": {
-		"@types/readline-sync": "^1.4.8",
 		"readline-sync": "^1.4.10"
 	}
 }

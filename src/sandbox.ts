@@ -1,14 +1,13 @@
 import {
 	Limits,
-	SeclangBaseFunction,
 	SeclangFunction,
 	SeclangList,
 	SeclangNumber,
 	SeclangString,
 	SeclangValue,
 	SymbolTable,
-} from "./seclang";
-import { run } from "./seclang";
+} from "./seclangCore";
+import { run } from "./seclangCore";
 
 export class CodeError extends Error {
 	constructor(message: string | undefined = undefined) {
@@ -107,6 +106,7 @@ export function jsToSeclangValue(value: jsToSeclangValueConvertable): SeclangVal
 export function sandboxRun(
 	programText: string,
 	limits: Limits,
+	filename: string = "<program>",
 	environment: EnvironmentInput = {}
 ): sandboxRunResult {
 	const stdout = [];
@@ -116,7 +116,7 @@ export function sandboxRun(
 		innerGlobalSymbolTable.setNew(key, jsToSeclangValue(environment[key]));
 	}
 
-	const runResult = run(programText, "<program>", limits, false, stdout, innerGlobalSymbolTable);
+	const runResult = run(programText, filename, limits, false, stdout, innerGlobalSymbolTable);
 
 	if (runResult.error) throw new CodeError(runResult.error.toString());
 
