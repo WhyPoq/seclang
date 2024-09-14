@@ -115,5 +115,5 @@ function runFunction() {
         });
     });
 }
-runFunction();
+testProgram();
 //# sourceMappingURL=main.js.map

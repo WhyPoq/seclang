@@ -21,3 +21,5 @@ function test(count) {
     }
     return line
 }
+
+test(10)

@@ -55,4 +55,4 @@ async function runFunction() {
 	}
 }
 
-runFunction();
+testProgram();
