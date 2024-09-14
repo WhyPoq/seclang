@@ -1,1 +1,1 @@
-# seclang-1
+# seclang
