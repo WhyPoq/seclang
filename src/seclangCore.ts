@@ -2925,6 +2925,36 @@ class SeclangFloorFunction extends SeclangBaseFunction {
 	}
 }
 
+class SeclangRandomFunction extends SeclangBaseFunction {
+	public argNames: string[];
+
+	public constructor() {
+		super("random");
+		this.argNames = [];
+	}
+
+	public override copy() {
+		let copy = new SeclangRandomFunction();
+		copy.context = this.context;
+		copy.posStart = this.posStart;
+		copy.posEnd = this.posEnd;
+		return copy;
+	}
+
+	public override execute(args: SeclangValue[]) {
+		const res = new RuntimeResult();
+		const newContext = this.generateNewContext();
+		res.registerChild(this.checkArgs(this.argNames, args));
+
+		if (res.shouldReturnUp()) return res;
+		this.populateArgs(this.argNames, args, newContext);
+
+		const randNumber = Math.random();
+
+		return res.successReturn(new SeclangNumber(randNumber));
+	}
+}
+
 export class SeclangString extends SeclangValue {
 	public value: string;
 
@@ -3657,7 +3687,8 @@ globalSymbolTable.setNew("false", SeclangNumber.false);
 globalSymbolTable.setNew("print", new SeclangPrintFunction());
 globalSymbolTable.setNew("sqrt", new SeclangSqrtFunction());
 globalSymbolTable.setNew("len", new SeclangLenFunction());
-globalSymbolTable.setNew("floor", new SeclangFloorFunction());
+globalSymbolTable.setNew("print", new SeclangPrintFunction());
+globalSymbolTable.setNew("random", new SeclangRandomFunction());
 
 class RunResult extends StepResult<SeclangValue> {
 	public toString() {
