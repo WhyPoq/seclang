@@ -2720,7 +2720,7 @@ export class SeclangBaseFunction extends SeclangValue {
 	public execute(
 		args: SeclangValue[],
 		logOutput: boolean,
-		stdout: string[],
+		stdout: SeclangStdout | undefined,
 		instrConstraint: InstrConstraint
 	) {
 		throw new Error(`'execute' method is not implemented for function '${this.name}'`);
@@ -2749,7 +2749,7 @@ export class SeclangFunction extends SeclangBaseFunction {
 	public override execute(
 		args: SeclangValue[],
 		logOutput: boolean,
-		stdout: string[],
+		stdout: SeclangStdout | undefined,
 		instrConstraint: InstrConstraint
 	) {
 		const res = new RuntimeResult();
@@ -2784,7 +2784,11 @@ class SeclangPrintFunction extends SeclangBaseFunction {
 		return copy;
 	}
 
-	public override execute(args: SeclangValue[], logOutput: boolean, stdout: string[]) {
+	public override execute(
+		args: SeclangValue[],
+		logOutput: boolean,
+		stdout: SeclangStdout | undefined
+	) {
 		const res = new RuntimeResult();
 		const newContext = this.generateNewContext();
 		res.registerChild(this.checkArgs(this.argNames, args));
@@ -2795,7 +2799,7 @@ class SeclangPrintFunction extends SeclangBaseFunction {
 		const line = newContext.symbolTable.get("value").asString();
 
 		if (logOutput) console.log(line);
-		stdout.push(line);
+		if (stdout) stdout.addLine(line);
 
 		return res.success(new SeclangNumber(null));
 	}
@@ -3114,14 +3118,17 @@ interface InstrConstraint {
 class Interpreter {
 	public instrConstraint: InstrConstraint;
 	public logOutput: boolean;
-	public stdout: string[];
+	public stdout: SeclangStdout | undefined;
 
-	public constructor(instrConstraint: InstrConstraint, logOutput: boolean, stdout?: string[]) {
+	public constructor(
+		instrConstraint: InstrConstraint,
+		logOutput: boolean,
+		stdout?: SeclangStdout
+	) {
 		this.instrConstraint = instrConstraint;
 		this.logOutput = logOutput;
 
-		if (stdout === undefined) this.stdout = [];
-		else this.stdout = stdout;
+		this.stdout = stdout;
 	}
 
 	public interpret(astRoot: Node, context: Context): InterpreterResult {
@@ -3663,12 +3670,47 @@ export interface Limits {
 	maxVariables: number | undefined;
 }
 
+export class SeclangStdout {
+	private buffer: string[];
+	private curEnd: number;
+	private looped: boolean;
+
+	public constructor(stdoutLimit: number = 30) {
+		this.buffer = new Array(stdoutLimit);
+		this.curEnd = 0;
+		this.looped = false;
+	}
+
+	public addLine(line: string) {
+		if (this.curEnd >= this.buffer.length) {
+			this.curEnd = 0;
+			this.looped = true;
+		}
+		this.buffer[this.curEnd] = line;
+		this.curEnd++;
+	}
+
+	public getValues() {
+		const values = [];
+		if (!this.looped) {
+			for (let i = 0; i < this.curEnd; i++) values.push(this.buffer[i]);
+		} else {
+			const startPos = this.curEnd;
+			for (let i = 0; i < this.buffer.length; i++) {
+				values.push(this.buffer[(i + startPos) % this.buffer.length]);
+			}
+		}
+
+		return values;
+	}
+}
+
 export const run = (
 	text: string,
 	filename: string = "<program>",
 	limits: Limits = { maxInstructions: undefined, maxVariables: undefined },
 	logOutput: boolean = true,
-	stdout: string[] = [],
+	stdout: SeclangStdout = undefined,
 	innerGlobalSymbolTable?: SymbolTable
 ): RunResult => {
 	const lexer = new Lexer(filename, text);

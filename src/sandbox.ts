@@ -3,6 +3,7 @@ import {
 	SeclangFunction,
 	SeclangList,
 	SeclangNumber,
+	SeclangStdout,
 	SeclangString,
 	SeclangValue,
 	SymbolTable,
@@ -50,14 +51,14 @@ type seclangValueToJSReturnType =
 	| ((
 			args: jsToSeclangValueConvertable[],
 			logOutput: boolean,
-			stdout: string[],
+			stdout: SeclangStdout,
 			instructionsLimit: number
 	  ) => seclangValueToJSReturnType);
 
 export type FunctionFromSeclang = (
 	args: jsToSeclangValueConvertable[],
 	logOutput: boolean,
-	stdout: string[],
+	stdout: SeclangStdout,
 	instructionsLimit: number
 ) => seclangValueToJSReturnType;
 
@@ -69,7 +70,7 @@ export function seclangValueToJS(
 ): (
 	args: jsToSeclangValueConvertable[],
 	logOutput: boolean,
-	stdout: string[],
+	stdout: SeclangStdout,
 	instructionsLimit: number
 ) => seclangValueToJSReturnType;
 
@@ -86,7 +87,7 @@ export function seclangValueToJS(secVal: SeclangValue): seclangValueToJSReturnTy
 		return function (
 			args: jsToSeclangValueConvertable[],
 			logOutput: boolean,
-			stdout: string[],
+			stdout: SeclangStdout,
 			instructionsLimit: number
 		) {
 			const convertedArgs = args.map((arg) => jsToSeclangValue(arg));
@@ -113,10 +114,11 @@ export function jsToSeclangValue(value: jsToSeclangValueConvertable): SeclangVal
 export function sandboxRun(
 	programText: string,
 	limits: Limits,
+	stdoutLimit: number = 30,
 	filename: string = "<program>",
 	environment: EnvironmentInput = {}
 ): sandboxRunResult {
-	const stdout = [];
+	const stdout = new SeclangStdout(stdoutLimit);
 
 	const innerGlobalSymbolTable = new SymbolTable();
 	for (const key in environment) {
@@ -128,7 +130,7 @@ export function sandboxRun(
 	if (runResult.error) throw new CodeError(runResult.error.toString());
 
 	return {
-		stdout,
+		stdout: stdout.getValues(),
 		globalSymbols: Object.fromEntries(innerGlobalSymbolTable.symbols),
 		result: runResult.result,
 	};
