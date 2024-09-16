@@ -51,28 +51,21 @@ type seclangValueToJSReturnType =
 	| ((
 			args: jsToSeclangValueConvertable[],
 			logOutput: boolean,
-			stdout: SeclangStdout,
+			stdout: SeclangStdout | undefined,
 			instructionsLimit: number
 	  ) => seclangValueToJSReturnType);
 
 export type FunctionFromSeclang = (
 	args: jsToSeclangValueConvertable[],
 	logOutput: boolean,
-	stdout: SeclangStdout,
+	stdout: SeclangStdout | undefined,
 	instructionsLimit: number
 ) => seclangValueToJSReturnType;
 
 export function seclangValueToJS(secVal: SeclangNumber): number;
 export function seclangValueToJS(secVal: SeclangString): string;
 export function seclangValueToJS(secVal: SeclangList): seclangValueToJSReturnType[];
-export function seclangValueToJS(
-	secVal: SeclangFunction
-): (
-	args: jsToSeclangValueConvertable[],
-	logOutput: boolean,
-	stdout: SeclangStdout,
-	instructionsLimit: number
-) => seclangValueToJSReturnType;
+export function seclangValueToJS(secVal: SeclangFunction): FunctionFromSeclang;
 
 export function seclangValueToJS(secVal: SeclangValue): seclangValueToJSReturnType;
 
