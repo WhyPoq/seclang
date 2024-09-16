@@ -1561,14 +1561,26 @@ class Parser {
 		res.registerAdvancement();
 		this.advance();
 
-		if ((this.curToken as Token) instanceof EQToken) {
+		if (
+			this.curToken instanceof EQToken ||
+			this.curToken instanceof PEQToken ||
+			this.curToken instanceof MEQToken
+		) {
+			const operationToken = this.curToken;
 			res.registerAdvancement();
 			this.advance();
-
-			const value = res.registerChild(this.makeExpr());
+			let assignVal = res.registerChild(this.makeExpr());
 			if (res.error) return res;
 
-			return res.success(new ListSetNode(atom, index, value));
+			if (operationToken instanceof PEQToken) {
+				const plusToken = new PlusToken(operationToken.posStart, operationToken.posEnd);
+				assignVal = new BinOpNode(new ListAccessNode(atom, index), plusToken, assignVal);
+			} else if (operationToken instanceof MEQToken) {
+				const minusToken = new MinusToken(operationToken.posStart, operationToken.posEnd);
+				assignVal = new BinOpNode(new ListAccessNode(atom, index), minusToken, assignVal);
+			}
+
+			return res.success(new ListSetNode(atom, index, assignVal));
 		}
 
 		return res.success(new ListAccessNode(atom, index));

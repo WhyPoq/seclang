@@ -50,6 +50,8 @@ atomManip       : listManip
 
 listManip       : atom [expr]
                 : atom [expr] EQ expr
+                : atom [expr] PEQ expr
+                : atom [expr] MEQ expr
                 : atom
 
 funCall         : atom L_PAREN expr? (COMMA expr)* R_PAREN
