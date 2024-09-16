@@ -54,6 +54,13 @@ type seclangValueToJSReturnType =
 			instructionsLimit: number
 	  ) => seclangValueToJSReturnType);
 
+export type FunctionFromSeclang = (
+	args: jsToSeclangValueConvertable[],
+	logOutput: boolean,
+	stdout: string[],
+	instructionsLimit: number
+) => seclangValueToJSReturnType;
+
 export function seclangValueToJS(secVal: SeclangNumber): number;
 export function seclangValueToJS(secVal: SeclangString): string;
 export function seclangValueToJS(secVal: SeclangList): seclangValueToJSReturnType[];
