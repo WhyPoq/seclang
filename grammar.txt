@@ -17,7 +17,7 @@ statement       : statementIf
                 : statementWhile
                 : inlineStatment
 
-inlineStatments : expr
+inlineStatment  : expr
                 : break
                 : continue
                 : return expr?

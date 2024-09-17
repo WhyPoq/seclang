@@ -1313,6 +1313,16 @@ class Parser {
 		}
 	}
 
+	private skipEmptyLines(res: ParseNodeResult) {
+		let countSkipped = 0;
+		while (this.curToken instanceof NewlineToken) {
+			res.registerAdvancement();
+			this.advance();
+			countSkipped++;
+		}
+		return countSkipped;
+	}
+
 	public parse() {
 		const res = this.makeStatements();
 		if (res.error) {
@@ -1914,6 +1924,8 @@ class Parser {
 		res.registerAdvancement();
 		this.advance();
 
+		this.skipEmptyLines(res);
+
 		res.resetAdvancementCount();
 		if (!(this.curToken instanceof LCurlyToken)) {
 			const onTrueStatement = res.registerChild(this.makeInlineStatement());
@@ -1956,9 +1968,13 @@ class Parser {
 		res.registerAdvancement();
 		this.advance();
 
+		const skippedEmptyLines = this.skipEmptyLines(res);
+
 		if (this.curToken instanceof KeywordToken && this.curToken.value === "else") {
 			res.registerAdvancement();
 			this.advance();
+
+			this.skipEmptyLines(res);
 
 			res.resetAdvancementCount();
 			const elseHasCurly = this.curToken instanceof LCurlyToken;
@@ -1993,6 +2009,9 @@ class Parser {
 			}
 
 			return res.success(new IfNode(condition, onTrueStatement, onFalseStatement));
+		} else {
+			res.unregisterAdvancement(skippedEmptyLines);
+			this.unadvance(skippedEmptyLines);
 		}
 
 		return res.success(new IfNode(condition, onTrueStatement));
@@ -2027,6 +2046,8 @@ class Parser {
 		}
 		res.registerAdvancement();
 		this.advance();
+
+		this.skipEmptyLines(res);
 
 		res.resetAdvancementCount();
 		if (!(this.curToken instanceof LCurlyToken)) {
@@ -2153,6 +2174,8 @@ class Parser {
 		}
 		res.registerAdvancement();
 		this.advance();
+
+		this.skipEmptyLines(res);
 
 		res.resetAdvancementCount();
 		if (!(this.curToken instanceof LCurlyToken)) {
@@ -3699,7 +3722,7 @@ globalSymbolTable.setNew("false", SeclangNumber.false);
 globalSymbolTable.setNew("print", new SeclangPrintFunction());
 globalSymbolTable.setNew("sqrt", new SeclangSqrtFunction());
 globalSymbolTable.setNew("len", new SeclangLenFunction());
-globalSymbolTable.setNew("print", new SeclangPrintFunction());
+globalSymbolTable.setNew("floor", new SeclangFloorFunction());
 globalSymbolTable.setNew("random", new SeclangRandomFunction());
 
 class RunResult extends StepResult<SeclangValue> {

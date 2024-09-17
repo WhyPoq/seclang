@@ -22,6 +22,5 @@ function bar(count) {
     return line
 }
 
-for(let i = 1; i < 13; i += 1) {
+for(let i = 1; i < 13; i += 1)
     print(bar(i * i))
-}
